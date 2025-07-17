@@ -1,0 +1,14 @@
+.GlobalEnv
+package:MASS
+package:AdapDiscom
+package:roxygen2
+devtools_shims
+tools:rstudio
+package:stats
+package:graphics
+package:grDevices
+package:utils
+package:datasets
+package:methods
+Autoloads
+package:base

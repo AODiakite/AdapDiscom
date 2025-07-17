@@ -1,0 +1,18 @@
+Package: AdapDiscom
+Type: Package
+Title: A multimodal high dimensionnal method accounting for missing data and measurement error heterogenity
+Version: 1.0.0
+Date: 2024-01-01
+Author: Abdoul Oudouss Diakite
+Maintainer: Abdoul Oudouss Diakite <abdoul.diakite@inrs.ca>
+Description: Implements AdapDiscom.
+License: GPL-3
+Depends: R (>= 3.5.0)
+Imports: 
+    softImpute,
+    Matrix,
+    scout,
+    robustbase
+LazyData: true
+RoxygenNote: 7.3.2
+Encoding: UTF-8

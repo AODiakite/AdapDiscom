@@ -1,0 +1,259 @@
+args <- commandArgs(trailingOnly = TRUE)
+arrayID = as.numeric(args[1])
+#arrayID = 1
+
+starter = 0
+arrayID = arrayID + starter
+
+n_sim <- 50 
+# range of the seed for 200 simulated sample
+set.seed(31)
+seed_sim <- sample(1:5000, n_sim, replace = FALSE, prob = NULL)
+
+excluded_seed = c(1,2,5,7,9,12,16,25,31,43)
+
+seed_sim = seed_sim[-excluded_seed]
+
+params_grid = expand.grid(seed_sim = seed_sim, k_huber = seq(0.05,5,len = 100))
+seed_local = params_grid[arrayID,1]
+k_huber = params_grid[arrayID,2]
+
+# Fonction pour exécuter DISCOM et d'autres méthodes sur des données CSV
+# Les méthodes sont définies dans le fichier csv_discom.R
+library(dplyr)
+# Charger les fonctions nécessaires
+source("csv_discom.R")
+# source("csv_discom.R")
+# Fonction principale pour l'analyse CSV
+run_analysis_csv <- function(file_path, target_column, 
+                             pp = c(CSF=5,MRI=62), seed = seed_local,
+                             exclude_columns = NULL, modality = c("CSF","MRI", "PET", "SNP"), n.lambda = 30, k.huber = k_huber) {
+  # Charger les données
+  cat("Chargement des données depuis", file_path, "...\n")
+  
+  if (grepl("\\.csv$", file_path, ignore.case = TRUE)) {
+    data <- read.csv(file_path)
+  } else if (grepl("\\.xlsx$|\\.xls$", file_path, ignore.case = TRUE)) {
+    data <- readxl::read_excel(file_path)
+    data <- as.data.frame(data)
+  } else {
+    stop("Format de fichier non pris en charge. Utilisez .csv ou .xlsx/.xls")
+  }
+  
+  # Vérifier si la variable cible existe
+  if (!(target_column %in% names(data))) {
+    stop("La variable cible '", target_column, "' n'existe pas dans le jeu de données.")
+  }
+  # Extraire la variable cible et les prédicteurs
+  data <- data[, -exclude_columns]
+  
+ 
+  
+  y <- data[[target_column]]
+  y = as.numeric(y)
+  x <- data %>% dplyr::select(dplyr::starts_with(modality))
+  completely_missing <- which(rowSums(is.na(x[,-(1:2)])) == ncol(x[,-(1:2)]))
+  if (length(completely_missing) > 0) {
+    cat("Ligne(s) avec toutes les valeurs manquantes supprimée(s):", completely_missing, "\n")
+    x <- x[-completely_missing, ]
+    y <- y[-completely_missing]
+  }
+  
+  pp = sapply(modality, \(x){
+    data %>% dplyr::select(dplyr::starts_with(x)) %>% ncol()
+  })
+  
+  # Vérifier s'il y a des valeurs manquantes
+  has_missing <- any(is.na(data))
+  
+  # Partitionner les données
+  
+  set.seed(seed)
+  data = cbind(y, x)
+  # Identifier les cas complets (sans valeurs manquantes)
+  complete_cases_idx <- which(complete.cases(data))
+  incomplete_cases_idx <- which(!complete.cases(data))
+  
+  # Nombre total de cas complets
+  n_complete <- length(complete_cases_idx)
+  # n_complete_train <- ((n_complete *20) %/% 100) + 1
+  n_complete_train <- 10
+  # n_complete_val <- n_complete_train
+  n_complete_val <- 36
+  n_complete_test <- n_complete - n_complete_train - n_complete_val
+  # Échantillonner 200 cas complets aléatoirement
+  sampled_complete_idx <- sample(complete_cases_idx, n_complete_train + n_complete_val)
+  
+  # Diviser ces 200 cas en deux groupes de 100
+  tuning_idx <- sampled_complete_idx[1:n_complete_val]
+  train_complete_idx <- sampled_complete_idx[(n_complete_val+1):(n_complete_train + n_complete_val)]
+  
+  # Les 233 cas complets restants vont en validation
+  test_idx <- setdiff(complete_cases_idx, sampled_complete_idx)
+  
+  
+  # Combiner les 100 cas complets avec les cas incomplets pour l'ensemble d'entraînement
+  train_idx <- c(train_complete_idx, incomplete_cases_idx)
+  
+  # Préparer les ensembles d'entraînement, validation et test
+  x_train <- as.matrix(x[train_idx, ])
+  x_train <- as.matrix(x_train)
+
+  y_train <- y[train_idx]
+  y_train <- as.vector(y_train)
+  
+  # Standardiser les données de validation et de test
+  x_val <- as.matrix(x[tuning_idx, ])
+  x_val <- as.matrix(x_val)
+  y_val <- y[tuning_idx]
+  y_val <- as.vector(y_val)
+  
+  x_test <- as.matrix(x[test_idx, ])
+  x_test <- as.matrix(x_test)
+  y_test <- y[test_idx]
+  y_test <- as.vector(y_test)
+  
+  # S'assurer que les ensembles de validation et test contiennent uniquement des observations complètes
+  if (has_missing) {
+    complete_rows_val <- complete.cases(x_val) & complete.cases(y_val)
+    x_val <- x_val[complete_rows_val, ]
+    y_val <- y_val[complete_rows_val]
+    
+    complete_rows_test <- complete.cases(x_test) & complete.cases(y_test)
+    x_test <- x_test[complete_rows_test, ]
+    y_test <- y_test[complete_rows_test]
+    
+    cat("IMPORTANT: Données avec valeurs manquantes détectées. Les ensembles de validation et test sont filtrés pour ne contenir que des observations complètes.\n")
+  }
+  
+  # Diviser les caractéristiques en blocs
+  p <- ncol(x_train)
+  if (sum(pp) != p) {
+    cat("Erreur: La somme des tailles de blocs ne correspond pas au nombre total de colonnes\n")
+  }
+  # Résultats
+  results <- list()
+  
+  
+  
+  
+  
+  x_std = standardize_x(as.matrix(x[train_idx, ]), robust = 1,k.value = k.huber )
+  x_train <- x_std$x
+  xm <- x_std$x.mean
+  xs <- x_std$x.sd
+  x_val <- fit_standardize_x(x[tuning_idx,], xm, xs)
+  x_test <- fit_standardize_x(x[test_idx, ], xm, xs)
+  
+  
+
+  # Estimer les paramètres pour Fast-Discom
+  if (has_missing) {
+    nj <- min(colSums(!is.na(x_train)))
+    x_dummy = x_train
+    # Replace Non NA by 1
+    x_dummy[!is.na(x_dummy)] <- 1
+    # Replace NA by 0
+    x_dummy[is.na(x_dummy)] <- 0
+    
+    njt <- min(x_dummy%*%t(x_dummy))
+  } else {
+    nj <- nrow(x_train)
+    njt <- nrow(x_train)
+  }
+  
+  # cat("Exécution du modèle DISCOM-Huber...\n")
+  # results$`Discom-Huber` <- discom(NULL, x_train, y_train, x_val, y_val, x_test, y_test,
+  #                                  nlambda = n.lambda, nalpha = 10, pp = pp, robust = 1, xm = xm, xs = xs,
+  #                                  k.value = k.huber)
+  # 
+  # cat("Exécution du modèle Fast-Discom-Huber...\n")
+  # results$`Fast-Discom-Huber` <- fast_discom(NULL, x_train, y_train, x_val, y_val,
+  #                                            x_test, y_test, nlambda = n.lambda, pp = pp,
+  #                                            nj = nj, njt = njt, robust = 1, xm = xm, xs = xs,k.value = k.huber)
+  # 
+  
+
+  cat("Exécution du modèle AdapDiscom-Huber...\n")
+  results$`AdapDiscom-Huber` <- adapdiscom_general(NULL, x_train, y_train, x_val, y_val,
+                                           x_test, y_test, nlambda = n.lambda, nalpha = 10,
+                                           pp = pp, robust = 1, xm = xm, xs = xs, k.value = k.huber)
+  
+
+  cat("Exécution du modèle Fast-AdapDiscom-Huber...\n")
+  results$`Fast-AdapDiscom-Huber` <- fast_adapdiscom(NULL, x_train, y_train, x_val, y_val,
+                                                     x_test, y_test, nlambda = n.lambda, nalpha = 10,
+                                                     pp = pp, robust = 1, xm = xm, xs = xs, k.value = k.huber)
+  
+  
+  
+  # Créer un résumé des résultats
+  results_summary <- data.frame(
+    Model = character(),
+    Test_MSE = numeric(),
+    R2 = numeric(),
+    Selected_Features = numeric(),
+    Execution_Time = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  
+  
+  
+ 
+  for (model_name in names(results)) {
+    model <- results[[model_name]]
+    if (!is.null(model) && !is.null(model$test.error)) {
+      results_summary <- rbind(results_summary, data.frame(
+        Model = model_name,
+        Test_MSE = model$test.error,
+        R2 = ifelse(is.null(model$R2), NA, model$R2),
+        Selected_Features = ifelse(is.null(model$select), NA, model$select),
+        Execution_Time = ifelse(is.null(model$time), NA, model$time),
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+  
+  # Trier par performance
+  results_summary <- results_summary[order(results_summary$Test_MSE), ]
+  results_summary$K_huber = k.huber
+  results_summary$SimID = arrayID
+  results_summary$Seed = seed
+  
+  # Afficher les résultats
+  cat("\nRésumé des performances des modèles :\n")
+  print(results_summary)
+  
+  # Sauvegarder les résultats
+  output_file <- paste0("resultats_discom_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".RData")
+  # save(results, results_summary, file = output_file)
+  
+  cat("\nRésultats sauvegardés dans", output_file, "\n")
+  
+  # Retourner les résultats
+  return(list(
+    results = results,
+    summary = results_summary,
+    x_train = x_train,
+    y_train = y_train,
+    x_val = x_val,
+    y_val = y_val,
+    x_test = x_test,
+    y_test = y_test,
+    block_sizes = pp
+  ))
+}
+
+# Exemple d'utilisation:
+# results <- run_analysis_csv("/home/diakite/scratch/Data_ADNI/Global_CSF_MRIV_PET_SIS.csv", "MMSCORE", exclude_columns = 1)
+#results <- run_analysis_csv("/home/diakite/scratch/Data_ADNI/Global_CSF_MRIV_PET_threshold_5e_5.csv", "MMSCORE", exclude_columns = 1)
+# results <- run_analysis_csv("/home/diakite/scratch/Data_ADNI/Global_CSF_MRIV_PET_threshold_5e_4.csv", "MMSCORE", exclude_columns = 1)
+#results <- run_analysis_csv("/home/diakite/scratch/Data_ADNI/Global_CSF_MRIV_PET_threshold_5e_3.csv")
+results <- run_analysis_csv("/home/diakite/projects/def-amadou/Dossier_ADNI_AB/Global_CSF_MRIV_PET_threshold_5e_3.csv", "MMSCORE", exclude_columns = 1)
+
+# results <- run_analysis_csv("Data/Global_data_SIS.csv",
+#                             "MMSCORE", exclude_columns = 1)
+
+# save(list = ls(), file = 'Replication/Scom_replicate_HD.RData')
+save(list = ls(), file = paste0('DesignSTD_Am_', Sys.getenv('SLURM_ARRAY_TASK_ID'), '.RData'))

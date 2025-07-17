@@ -1,0 +1,1483 @@
+args <- commandArgs(trailingOnly = TRUE)
+arrayID = as.numeric(args[1])
+# arrayID = 1
+library(Rcpp)
+library(softImpute)
+library(mvtnorm)
+library(MASS)
+library(glmnet)
+library(sfsmisc)
+library(grplasso)
+library(Matrix)
+library(gelnet)
+library(scout)
+library(missForest)
+library(mice)
+library(Matrix)
+library(scout)
+library(robustbase)
+library(BDcocolasso)
+
+#------------------  Usefull function ----------------------------
+# library(reticulate)
+# use_virtualenv("/home/diakite/scratch/Sim_Grande_Echelle/Multivariate_Student/MyPyVenv/")
+# source_python("retire_nonconvex.py")
+
+#-------- Linear model, lasso and ridge ------------------
+la_rdg = function(beta, x, y, x.tuning, y.tuning, x.test, y.test, nlambda,ols_weights, type) {
+  # Temps de calcul
+  # Debut du chronométrage
+  start_time <- proc.time()
+  n = dim(x)[1]
+  p = dim(x)[2]
+  n.tuning = dim(x.tuning)[1]
+  n.test = dim(x.test)[1]
+  
+  if (type == 'lasso') {
+    lasso=glmnet(x,y,nlambda=nlambda,intercept=F,alpha=1,penalty.factor = ols_weights)
+    lambda.all=as.vector(lasso$lambda)
+    nlambda=length(lambda.all)
+    
+    mse=rep(NA,nlambda)
+    for(i in 1:nlambda)
+    {
+      beta.lasso=as.vector(lasso$beta[,i])
+      y.tun.pred = as.vector(x.tuning%*%beta.lasso)
+      mse[i]=mean((y.tuning - y.tun.pred)^2)
+    }
+    op.lambda=lambda.all[which.min(mse)[1]]
+    train.error = min(mse)
+    re = glmnet(x,y,lambda=op.lambda,alpha=1, intercept = F, penalty.factor = ols_weights)
+    a1.op = as.vector(re$beta)
+    y.pred = as.vector(x.test%*%a1.op)
+    R2 = cor(y.pred, y.test)^2
+    test.error=mean((y.test - y.pred )^2)
+    select = sum(as.vector(as.integer(a1.op!=0)))
+    fpr=sum((beta==0)&(a1.op!=0))/sum(beta==0)
+    fnr=sum((beta!=0)&(a1.op==0))/sum(beta!=0)
+    est.error=sqrt(sum((a1.op-beta)^2))
+  }
+  
+  if (type == 'ridge') {
+    lasso=glmnet(x,y,nlambda=nlambda,intercept=F,alpha=0,penalty.factor = ols_weights)
+    lambda.all=as.vector(lasso$lambda)
+    nlambda=length(lambda.all)
+    
+    mse=rep(NA,nlambda)
+    for(i in 1:nlambda)
+    {
+      beta.lasso=as.vector(lasso$beta[,i])
+      y.tun.pred = as.vector(x.tuning%*%beta.lasso)
+      mse[i]=mean((y.tuning - y.tun.pred)^2)
+    }
+    op.lambda=lambda.all[which.min(mse)[1]]
+    train.error = min(mse)
+    re = glmnet(x,y,lambda=op.lambda,alpha=0, intercept = F,penalty.factor = ols_weights)
+    a1.op = as.vector(re$beta)
+    y.pred = as.vector(x.test%*%a1.op)
+    R2 = cor(y.pred, y.test)^2
+    test.error=mean((y.test - y.pred )^2)
+    select = sum(as.vector(as.integer(a1.op!=0)))
+    fpr=sum((beta==0)&(a1.op!=0))/sum(beta==0)
+    fnr=sum((beta!=0)&(a1.op==0))/sum(beta!=0)
+    est.error=sqrt(sum((a1.op-beta)^2))
+  }
+  
+  # Fin de chronométrage
+  end_time <- proc.time()
+  time_taken <- end_time - start_time
+  a = list('err' = mse, 'est.error' = est.error, 'lambda' = op.lambda, 
+           'train.error' = train.error, 'test.error' = test.error,'y.pred' = y.pred,
+           'a1' = a1.op,R2 = R2, 'select' = select, 'fpr' = fpr, 'fnr' = fnr,"time" = as.numeric(time_taken[3]))
+  
+  return(a)
+}
+
+
+
+# iMSF method
+imsf1 = function(beta, x, y, x.tuning, y.tuning, x.test, y.test, nlambda,  pattern) {
+  # Temps de calcul
+  # Debut du chronométrage
+  start_time <- proc.time()
+  n1 = length(pattern[[1]]$sample.id)
+  n2 = length(pattern[[2]]$sample.id)
+  n3 = length(pattern[[3]]$sample.id)
+  n4 = length(pattern[[4]]$sample.id)
+  p = dim(x)[2]
+  
+  Y.train.new=c(y[1:n1]/sqrt(n1),y[(1+n1):(n1+n2)]/sqrt(n2),y[(1+n1+n2):(n1+n2+n3)]/sqrt(n3),
+                y[(1+n1+n2+n3):(n1+n2+n3+n4)]/sqrt(n4))
+  #X.train.new=as.matrix(bdiag(x[1:n1,]/sqrt(n1),x[(1+n1):(n1+n2),1:(p1+p2)]/sqrt(n2)
+  #                            ,x[(1+n1+n2):(n1+n2+n3),c(1:p1,(p1+p2+1):(p1+p2+p3))]/sqrt(n3),x[(1+n1+n2+n3):(n1+n2+n3+n4),1:p1]/sqrt(n4)))
+  X.train.new=as.matrix(bdiag(x[pattern[[1]]$sample.id, pattern[[1]]$feature.id]/sqrt(n1),
+                              x[pattern[[2]]$sample.id, pattern[[2]]$feature.id]/sqrt(n2),
+                              x[pattern[[3]]$sample.id, pattern[[3]]$feature.id]/sqrt(n3),
+                              x[pattern[[4]]$sample.id, pattern[[4]]$feature.id]/sqrt(n4)))
+  group.index=c(pattern[[1]]$feature.id, pattern[[2]]$feature.id, pattern[[3]]$feature.id, pattern[[4]]$feature.id)
+  lambda.all=seq(1,0.05,length=nlambda)
+  mse = rep(NA,nlambda)
+  
+  for(i in 1:nlambda){
+    imsf=grplasso(X.train.new,Y.train.new,group.index,lambda=lambda.all[i],center=F,standardize=F,model=LinReg(),
+                  control = grpl.control(trace = 0))
+    beta.imsf=as.vector(imsf$coefficients[1:p])
+    imsf.tun.values=as.vector(x.tuning%*%beta.imsf)
+    mse[i]=mean((y.tuning-imsf.tun.values)^2)
+  }
+  opt.lambda=lambda.all[which.min(mse)]
+  train.error = min(mse)
+  imsf.fit=grplasso(X.train.new,Y.train.new,group.index,lambda=opt.lambda,center=F,standardize=F,model=LinReg(),
+                    control = grpl.control(trace = 0))
+  beta.imsf=as.vector(as.vector(imsf.fit$coefficients[1:p]))
+  imsf.test.values=as.vector(x.test%*%beta.imsf)
+  imsf.test.error=mean((y.test-imsf.test.values)^2)
+  select = sum(as.vector(as.integer(beta.imsf!=0)))
+  fpr=sum((beta==0)&(beta.imsf!=0))/sum(beta==0)
+  fnr=sum((beta!=0)&(beta.imsf==0))/sum(beta!=0)
+  imsf.est.error=sqrt(sum((beta.imsf-beta)^2))
+  
+  # Fin de chronométrage
+  end_time <- proc.time()
+  time_taken <- end_time - start_time
+  
+  a = list('err' = mse, 'est.error' = imsf.est.error, 'lambda' = opt.lambda, 
+           'train.error' = train.error, 'test.error' = imsf.test.error,'y.pred' = imsf.test.values,
+           'a0' = 0, 'a1' = imsf.fit$coefficients, 'select' = select, 'fpr' = fpr, 'fnr' = fnr,"time" = as.numeric(time_taken[3]))
+  return(a)
+  
+}
+
+
+# Fonction auxiliaire pour calculer les indices des blocs
+get_block_indices <- function(pp) {
+  n <- length(pp)
+  starts <- c(1, cumsum(pp[-n]) + 1)
+  ends <- cumsum(pp)
+  return(list(starts = starts, ends = ends))
+}
+
+
+# DISCOM and DISCOM-Huber
+discom = function(beta, x, y, x.tuning, y.tuning, x.test, y.test, nlambda, nalpha, pp, robust = 0) 
+  {
+  # Temps de calcul
+  # Debut du chronométrage
+  start_time <- proc.time()
+  n = dim(x)[1]
+  p = dim(x)[2]
+  n.tuning = dim(x.tuning)[1]
+  n.test = dim(x.test)[1]
+  
+  
+  alpha.all=10^seq(0,-3,length=nalpha)
+  lambda.all=10^(seq(log10(2),-3,length=nlambda))
+  
+  DISCOM.tun.error=array(NA,dim=c(nalpha,nalpha,nlambda))
+  
+  xtx.raw = compute.xtx(x, robust = robust)
+  xty = compute.xty(x, y, robust = robust)
+  
+  if (length(pp)==3) {
+    p1 = pp[1]
+    p2 = pp[2]
+    p3 = pp[3]
+    xtx.raw.I=as.matrix(bdiag(xtx.raw[1:p1,1:p1],xtx.raw[(p1+1):(p1+p2),(p1+1):(p1+p2)],
+                              xtx.raw[(p1+p2+1):(p1+p2+p3),(p1+p2+1):(p1+p2+p3)]))
+    xtx.raw.C=xtx.raw-xtx.raw.I
+    shrink.target=sum(diag(xtx.raw))/p
+  } else if (length(pp)==2) {
+    p1 = pp[1]
+    p2 = pp[2]
+    xtx.raw.I=as.matrix(bdiag(xtx.raw[1:p1,1:p1],xtx.raw[(p1+1):(p1+p2),(p1+1):(p1+p2)]))
+    xtx.raw.C=xtx.raw-xtx.raw.I
+    shrink.target=sum(diag(xtx.raw))/p
+  }
+  
+  
+  
+  for(i in 1:nalpha){  
+    for(j in 1:nalpha){
+      alpha1=alpha.all[i]
+      alpha2=alpha.all[j]
+      xtx=alpha1*xtx.raw.I+alpha2*xtx.raw.C+(1-alpha1)*shrink.target*diag(p)
+      if(min(eigen(xtx)$values)<0){DISCOM.tun.error[i,j,]=10^8}
+      else{
+        beta.initial=rep(0,p)
+        for(k in 1:nlambda){
+          beta.cov=as.vector(crossProdLasso(xtx,xty,lambda.all[k],beta.init=beta.initial)$beta)
+          betal.initial=beta.cov
+          DISCOM.tun.values=as.vector(as.matrix(x.tuning)%*%beta.cov)
+          DISCOM.tun.error[i,j,k]=mean((y.tuning-DISCOM.tun.values)^2)
+        }
+      }
+    }
+  }
+  
+  opt.index=as.vector(which(DISCOM.tun.error==min(DISCOM.tun.error),arr.ind=T)[1,])
+  train.error = min(DISCOM.tun.error)
+  opt.alpha1=alpha.all[opt.index[1]]
+  opt.alpha2=alpha.all[opt.index[2]]
+  opt.lambda=lambda.all[opt.index[3]]
+  xtx=opt.alpha1*xtx.raw.I+opt.alpha2*xtx.raw.C+(1-opt.alpha1)*shrink.target*diag(p)
+  beta.cov=as.vector(crossProdLasso(xtx,xty,opt.lambda)$beta)
+  predict.test.values=as.vector(x.test%*%beta.cov)
+  
+  DISCOM.test.error=mean((y.test-predict.test.values)^2)
+  select = sum(as.vector(as.integer(beta.cov!=0)))
+  DISCOM.fpr=sum((beta==0)&(beta.cov!=0))/sum(beta==0)
+  DISCOM.fnr=sum((beta!=0)&(beta.cov==0))/sum(beta!=0)
+  DISCOM.est.error=sqrt(sum((beta.cov-beta)^2))
+  R2 = cor(predict.test.values, y.test)^2
+  
+  # Fin de chronométrage
+  end_time <- proc.time()
+  time_taken <- end_time - start_time
+  
+  a = list('err' = DISCOM.tun.error, 'est.error' = DISCOM.est.error, 'lambda' = opt.lambda, 'alpha' = c(opt.alpha1,opt.alpha2), 
+           'train.error' = train.error, 'test.error' = DISCOM.test.error,'y.pred' = predict.test.values,R2 = R2,
+           'a0' = 0, 'a1' = beta.cov, 'select' = select, 'xtx' = xtx, 'fpr' = DISCOM.fpr, 'fnr' = DISCOM.fnr,
+           "time" = as.numeric(time_taken[3]))
+  
+  
+  
+}
+
+adapdiscom = function(beta, x, y, x.tuning, y.tuning, x.test, y.test, nlambda, nalpha, pp, robust = 0) 
+{
+  # Temps de calcul
+  # Debut du chronométrage
+  start_time <- proc.time()
+  
+  n = dim(x)[1]
+  p = dim(x)[2]
+  n.tuning = dim(x.tuning)[1]
+  n.test = dim(x.test)[1]
+  
+  
+  alpha.all=10^seq(10^-(10),-3,length=nalpha)
+  lambda.all=10^(seq(log10(2),-3,length=nlambda))
+  
+  DISCOM.tun.error=array(NA,dim=c(nalpha,nalpha,nalpha,nalpha,nlambda))
+  
+  xtx.raw = compute.xtx(x, robust = robust)
+  xty = compute.xty(x, y, robust = robust)
+  
+  if (length(pp)==3) {
+    p1 = pp[1]
+    p2 = pp[2]
+    p3 = pp[3]
+    xtx.raw.I=as.matrix(bdiag(xtx.raw[1:p1,1:p1],xtx.raw[(p1+1):(p1+p2),(p1+1):(p1+p2)],
+                              xtx.raw[(p1+p2+1):(p1+p2+p3),(p1+p2+1):(p1+p2+p3)]))
+    xtx.raw.I1 = xtx.raw[1:p1,1:p1]
+    xtx.raw.I2 = xtx.raw[(p1+1):(p1+p2),(p1+1):(p1+p2)]
+    xtx.raw.I3 = xtx.raw[(p1+p2+1):(p1+p2+p3),(p1+p2+1):(p1+p2+p3)]
+    xtx.raw.C=xtx.raw-xtx.raw.I
+    shrink.target=sum(diag(xtx.raw))/p
+    shrink.target1=sum(diag(xtx.raw.I1))/p
+    shrink.target2=sum(diag(xtx.raw.I2))/p
+    shrink.target3=sum(diag(xtx.raw.I3))/p
+  } else if (length(pp)==2) {
+    p1 = pp[1]
+    p2 = pp[2]
+    xtx.raw.I=as.matrix(bdiag(xtx.raw[1:p1,1:p1],xtx.raw[(p1+1):(p1+p2),(p1+1):(p1+p2)]))
+    xtx.raw.I1 = xtx.raw[1:p1,1:p1]
+    xtx.raw.I2 = xtx.raw[(p1+1):(p1+p2),(p1+1):(p1+p2)]
+    xtx.raw.C=xtx.raw-xtx.raw.I
+    shrink.target=sum(diag(xtx.raw))/p
+    shrink.target1=sum(diag(xtx.raw.I1))/p
+    shrink.target2=sum(diag(xtx.raw.I2))/p
+  }
+  
+  for(i in 1:nalpha){  
+    for(j in 1:nalpha){
+      for (l in 1:nalpha) {
+        for (m in 1:nalpha) {
+          alpha1=alpha.all[i]
+          alpha2=alpha.all[j]
+          alpha3=alpha.all[l]
+          alpha4=alpha.all[m]
+          shrink.target = ((1-alpha1)^2)*shrink.target1 + ((1-alpha2)^2)*shrink.target2 + ((1-alpha3)^2)*shrink.target3
+          shrink.target = shrink.target / ((1-alpha1)^2 + (1-alpha2)^2 + (1-alpha3)^2)
+          xtx.raw.I=as.matrix(bdiag(alpha1*xtx.raw.I1,alpha2*xtx.raw.I2,alpha3*xtx.raw.I3))
+          xtx=xtx.raw.I+alpha4*xtx.raw.C+(3-alpha1-alpha2-alpha3)*shrink.target*diag(p)
+          
+          if(min(eigen(xtx,only.values =T)$values)<0){DISCOM.tun.error[i,j,l,m,]=10^8}
+          else{
+            beta.initial=rep(0,p)
+            for(k in 1:nlambda){
+              beta.cov=as.vector(crossProdLasso(xtx,xty,lambda.all[k],beta.init=beta.initial)$beta)
+              betal.initial=beta.cov
+              DISCOM.tun.values=as.vector(as.matrix(x.tuning)%*%beta.cov)
+              DISCOM.tun.error[i,j,l,m,k]=mean((y.tuning-DISCOM.tun.values)^2)
+            }
+          }
+          
+        }
+        
+      }
+      
+    }
+  }
+  
+  opt.index=as.vector(which(DISCOM.tun.error==min(DISCOM.tun.error),arr.ind=T)[1,])
+  train.error = min(DISCOM.tun.error)
+  opt.alpha1=alpha.all[opt.index[1]]
+  opt.alpha2=alpha.all[opt.index[2]]
+  opt.alpha3=alpha.all[opt.index[3]]
+  opt.alpha4=alpha.all[opt.index[4]]
+  opt.lambda=lambda.all[opt.index[5]]
+  shrink.target = ((1-opt.alpha1)^2)*shrink.target1 + ((1-opt.alpha2)^2)*shrink.target2 + ((1-opt.alpha3)^2)*shrink.target3
+  shrink.target = shrink.target / ((1-opt.alpha1)^2 + (1-opt.alpha2)^2 + (1-opt.alpha3)^2)
+  xtx.raw.I=as.matrix(bdiag(opt.alpha1*xtx.raw.I1,opt.alpha2*xtx.raw.I2,opt.alpha3*xtx.raw.I3))
+  xtx=xtx.raw.I+opt.alpha4*xtx.raw.C+(3-opt.alpha1-opt.alpha2-opt.alpha3)*shrink.target*diag(p)
+  beta.cov=as.vector(crossProdLasso(xtx,xty,opt.lambda)$beta)
+  predict.test.values=as.vector(x.test%*%beta.cov)
+  
+  
+  DISCOM.test.error=mean((y.test-predict.test.values)^2)
+  select = sum(as.vector(as.integer(beta.cov!=0)))
+  DISCOM.fpr=sum((beta==0)&(beta.cov!=0))/sum(beta==0)
+  DISCOM.fnr=sum((beta!=0)&(beta.cov==0))/sum(beta!=0)
+  DISCOM.est.error=sqrt(sum((beta.cov-beta)^2))
+  R2 = cor(predict.test.values, y.test)^2
+  
+  # Fin de chronométrage
+  end_time <- proc.time()
+  time_taken <- end_time - start_time
+  
+  a = list('err' = DISCOM.tun.error, 'est.error' = DISCOM.est.error, 'lambda' = opt.lambda, 'alpha' = c(opt.alpha1,opt.alpha2,opt.alpha3,opt.alpha4), 
+           'train.error' = train.error, 'test.error' = DISCOM.test.error,'y.pred' = predict.test.values,R2 = R2,
+           'a0' = 0, 'a1' = beta.cov, 'select' = select, 'xtx' = xtx, 'fpr' = DISCOM.fpr, 'fnr' = DISCOM.fnr,
+           "time" = as.numeric(time_taken[3]))
+  return(a)
+  
+}
+
+adapdiscom_general = function(beta, x, y, x.tuning, y.tuning, x.test, y.test, nlambda, nalpha, pp, robust = 0)
+{
+  # Temps de calcul
+  # Debut du chronométrage
+  start_time <- proc.time()
+  
+  n = dim(x)[1]
+  p = dim(x)[2]
+  n.tuning = dim(x.tuning)[1]
+  n.test = dim(x.test)[1]
+  n_blocks = length(pp)  # Nombre de blocs défini par la longueur de pp
+  
+  alpha.all = 10^seq(10^(-10), -3, length=nalpha)
+  lambda.all = 10^(seq(log10(2), -3, length=nlambda))
+  
+  # Création d'un tableau multidimensionnel pour les erreurs
+  # Le nombre de dimensions dépend de n_blocks + 1 (pour alpha de la partie non-diagonale) + 1 (pour lambda)
+  dim_array = rep(nalpha, n_blocks + 1)  # n_blocks pour les blocs + 1 pour alpha non-diagonal
+  dim_array = c(dim_array, nlambda)      # +1 dimension pour lambda
+  DISCOM.tun.error = array(NA, dim = dim_array)
+  
+  xtx.raw = compute.xtx(x, robust = robust)
+  xty = compute.xty(x, y, robust = robust)
+  
+  # Création des indices pour les sous-matrices
+  indices = get_block_indices(pp)
+  
+  # Création des sous-matrices individuelles
+  xtx.raw.blocks = list()
+  shrink.targets = numeric(n_blocks)
+  
+  for (i in 1:n_blocks) {
+    idx_range = indices$starts[i]:indices$ends[i]
+    xtx.raw.blocks[[i]] = xtx.raw[idx_range, idx_range]
+    shrink.targets[i] = sum(diag(xtx.raw.blocks[[i]]))/p
+  }
+  
+  # Création de la matrice bloc-diagonale initiale
+  xtx.raw.I = as.matrix(do.call(bdiag, xtx.raw.blocks))
+  
+  # Calcul de xtx.raw.C
+  xtx.raw.C = xtx.raw - xtx.raw.I
+  
+  # Calcul du shrink.target global
+  shrink.target = sum(diag(xtx.raw))/p
+  
+  # Créer des indices pour les boucles imbriquées
+  alpha_indices = expand.grid(replicate(n_blocks + 1, 1:nalpha, simplify = FALSE))
+  
+  # Boucle sur toutes les combinaisons d'indices alpha
+  for (row in 1:nrow(alpha_indices)) {
+    # Extraire les valeurs alpha actuelles
+    current_alphas = alpha.all[as.numeric(alpha_indices[row, ])]
+    
+    # Les n_blocks premières alphas sont pour les blocs diagonaux
+    block_alphas = current_alphas[1:n_blocks]
+    
+    # Le dernier alpha est pour xtx.raw.C
+    alpha_non_diag = current_alphas[n_blocks + 1]
+    
+    # Calcul du shrink.target pondéré
+    weighted_targets = 0
+    weight_sum = 0
+    for (i in 1:n_blocks) {
+      weighted_targets = weighted_targets + ((1-block_alphas[i])^2) * shrink.targets[i]
+      weight_sum = weight_sum + (1-block_alphas[i])^2
+    }
+    shrink.target_weighted = weighted_targets / weight_sum
+    
+    # Construction de la matrice bloc-diagonale avec les alphas appliqués
+    scaled_blocks = list()
+    for (i in 1:n_blocks) {
+      scaled_blocks[[i]] = block_alphas[i] * xtx.raw.blocks[[i]]
+    }
+    xtx.raw.I_scaled = as.matrix(do.call(bdiag, scaled_blocks))
+    
+    # Construction de la matrice finale
+    xtx = xtx.raw.I_scaled + alpha_non_diag * xtx.raw.C + 
+      (n_blocks - sum(block_alphas)) * shrink.target_weighted * diag(p)
+    
+    # Vérification de la positivité
+    if (min(eigen(xtx, only.values = TRUE)$values) < 0) {
+      # Remplir avec 10^8 pour cette combinaison d'alphas et tous les lambdas
+      idx = as.list(as.numeric(alpha_indices[row, ]))
+      # Convertir en format d'indexation
+      idx_str = paste(paste(idx, collapse=","), ",", sep="")
+      eval(parse(text=paste("DISCOM.tun.error[", idx_str, "] = 10^8", sep="")))
+    } else {
+      # Calcul des erreurs pour chaque lambda
+      beta.initial = rep(0, p)
+      for (k in 1:nlambda) {
+        beta.cov = as.vector(crossProdLasso(xtx, xty, lambda.all[k], beta.init=beta.initial)$beta)
+        beta.initial = beta.cov  # Pour la prochaine itération
+        DISCOM.tun.values = as.vector(as.matrix(x.tuning) %*% beta.cov)
+        
+        # Indexer correctement le tableau multidimensionnel
+        idx = c(as.numeric(alpha_indices[row, ]), k)
+        idx_str = paste(paste(idx, collapse=","), sep="")
+        eval(parse(text=paste("DISCOM.tun.error[", idx_str, "] = mean((y.tuning-DISCOM.tun.values)^2)", sep="")))
+      }
+    }
+  }
+  
+  # Trouver les paramètres optimaux
+  opt.index = as.vector(which(DISCOM.tun.error == min(DISCOM.tun.error), arr.ind=TRUE)[1,])
+  train.error = min(DISCOM.tun.error)
+  
+  # Extraire les valeurs alpha optimales
+  opt.alphas = alpha.all[opt.index[1:(n_blocks+1)]]
+  block_alphas_opt = opt.alphas[1:n_blocks]
+  alpha_non_diag_opt = opt.alphas[n_blocks+1]
+  
+  # Extraire le lambda optimal
+  opt.lambda = lambda.all[opt.index[n_blocks+2]]
+  
+  # Recalcul du shrink.target pondéré avec les alphas optimaux
+  weighted_targets = 0
+  weight_sum = 0
+  for (i in 1:n_blocks) {
+    weighted_targets = weighted_targets + ((1-block_alphas_opt[i])^2) * shrink.targets[i]
+    weight_sum = weight_sum + (1-block_alphas_opt[i])^2
+  }
+  shrink.target_opt = weighted_targets / weight_sum
+  
+  # Construction de la matrice bloc-diagonale optimale
+  scaled_blocks_opt = list()
+  for (i in 1:n_blocks) {
+    scaled_blocks_opt[[i]] = block_alphas_opt[i] * xtx.raw.blocks[[i]]
+  }
+  xtx.raw.I_opt = as.matrix(do.call(bdiag, scaled_blocks_opt))
+  
+  # Construction de la matrice finale optimale
+  xtx_opt = xtx.raw.I_opt + alpha_non_diag_opt * xtx.raw.C + 
+    (n_blocks - sum(block_alphas_opt)) * shrink.target_opt * diag(p)
+  
+  # Calcul du beta optimal
+  beta.cov = as.vector(crossProdLasso(xtx_opt, xty, opt.lambda)$beta)
+  
+  # Prédiction sur l'ensemble de test
+  predict.test.values = as.vector(x.test %*% beta.cov)
+  
+  # Calcul des métriques de performance
+  DISCOM.test.error = mean((y.test - predict.test.values)^2)
+  select = sum(as.vector(as.integer(beta.cov != 0)))
+  DISCOM.fpr = sum((beta == 0) & (beta.cov != 0))/sum(beta == 0)
+  DISCOM.fnr = sum((beta != 0) & (beta.cov == 0))/sum(beta != 0)
+  DISCOM.est.error = sqrt(sum((beta.cov - beta)^2))
+  R2 = cor(predict.test.values, y.test)^2
+  
+  # Fin de chronométrage
+  end_time <- proc.time()
+  time_taken <- end_time - start_time
+  
+  
+  # Préparation du résultat
+  a = list(
+    'err' = DISCOM.tun.error, 
+    'est.error' = DISCOM.est.error, 
+    'lambda' = opt.lambda, 
+    'alpha' = c(block_alphas_opt, alpha_non_diag_opt), 
+    'train.error' = train.error, 
+    'test.error' = DISCOM.test.error,
+    'y.pred' = predict.test.values,
+    'R2' = R2,
+    'a0' = 0, 
+    'a1' = beta.cov, 
+    'select' = select, 
+    'xtx' = xtx_opt, 
+    'fpr' = DISCOM.fpr, 
+    'fnr' = DISCOM.fnr,
+    "time" = as.numeric(time_taken[3])
+  )
+  
+  return(a)
+}
+
+fast_adapdiscom = function(beta, x, y, x.tuning, y.tuning, x.test, y.test, nlambda, nalpha, pp, robust = 0, n.l=30) {
+  # Temps de calcul
+  # Debut du chronométrage
+  start_time <- proc.time()
+  
+  n = dim(x)[1]
+  p = dim(x)[2]
+  n.tuning = dim(x.tuning)[1]
+  n.test = dim(x.test)[1]
+  n_blocks = length(pp)  # Nombre de blocs défini par la longueur de pp
+  
+  alpha.all = 10^seq(10^(-10), -3, length=nalpha)
+  lambda.all = 10^(seq(log10(2), -3, length=nlambda))
+  
+  # Création d'un tableau multidimensionnel pour les erreurs
+  
+  
+  xtx.raw = compute.xtx(x, robust = robust)
+  xty = compute.xty(x, y, robust = robust)
+  
+  # Création des indices pour les sous-matrices
+  indices = get_block_indices(pp)
+  
+  # Création des sous-matrices individuelles
+  xtx.raw.blocks = list()
+  shrink.targets = numeric(n_blocks)
+  nj = numeric(n_blocks)
+  njt = nrow(na.omit(x))
+  
+  for (i in 1:n_blocks) {
+    idx_range = indices$starts[i]:indices$ends[i]
+    xtx.raw.blocks[[i]] = xtx.raw[idx_range, idx_range]
+    shrink.targets[i] = sum(diag(xtx.raw.blocks[[i]]))/p
+    nj[i] = nrow(na.omit(x[, idx_range]))
+  }
+  
+  mk = log(p)/nj
+  mk = sqrt(mk)
+  mc = sqrt(log(p)/njt)
+  
+  
+  
+  # Création de la matrice bloc-diagonale initiale
+  xtx.raw.I = as.matrix(do.call(bdiag, xtx.raw.blocks))
+  
+  # Calcul de xtx.raw.C
+  xtx.raw.C = xtx.raw - xtx.raw.I
+  
+  # Calcul du shrink.target global
+  shrink.target = sum(diag(xtx.raw))/p
+  
+  
+  
+  # Calcul des paramètres de fast adadiscom
+  lmax = 1/mc
+  Mat_1 = Map(\(x,y){
+    x * y
+  }, x = xtx.raw.blocks, y = as.list(mc-mk))
+  Mat_1 = do.call(bdiag, Mat_1)
+  
+  sum_square_mk = sum(mk^2)
+  Mat_2 = Map(\(x,y){
+    (sum(diag(x)) * (y^2)) / sum_square_mk
+  }, x = xtx.raw.blocks, y = as.list(mk))
+  Mat_2 = sum(unlist(Mat_2))
+  Mat_2 = sum(mk * Mat_2)
+  Mat_2 = (Mat_2 * diag(p))/p
+  
+  Mat = Mat_1 + Mat_2
+  
+  kappa_sigma = min(eigen(xtx.raw, only.values = TRUE)$values)
+  kappa_mat = min(eigen(Mat, only.values = TRUE)$values)
+  
+  lmin = (kappa_sigma)/(mc*kappa_sigma - kappa_mat)
+  lmin = max(lmin, 0)
+  l.all=seq(lmin,lmax,length=n.l)
+  # Boucle sur toutes les combinaisons d'indices alpha
+  # Créer des indices pour les boucles imbriquées
+  # params_grid = expand.grid(l.all, lambda.all)
+  
+  # Le nombre de dimensions dépend de n_blocks + 1 (pour alpha de la partie non-diagonale) + 1 (pour lambda)
+  # n_blocks pour les blocs + 1 pour alpha non-diagonal
+  dim_array = c(n.l, nlambda)      # +1 dimension pour lambda
+  DISCOM.tun.error = array(NA, dim = dim_array)
+  
+  for (row in 1:n.l) {
+    # Extraire les valeurs alpha actuelles
+    l0 = l.all[row]
+    current_alphas = 1 - l0 * mk
+    
+    # Les n_blocks premières alphas sont pour les blocs diagonaux
+    block_alphas = current_alphas
+    
+    # Le dernier alpha est pour xtx.raw.C
+    alpha_non_diag = 1  - l0 * mc
+    
+    # Calcul du shrink.target pondéré
+    weighted_targets = 0
+    weight_sum = 0
+    for (i in 1:n_blocks) {
+      weighted_targets = weighted_targets + ((1-block_alphas[i])^2) * shrink.targets[i]
+      weight_sum = weight_sum + (1-block_alphas[i])^2
+    }
+    shrink.target_weighted = weighted_targets / weight_sum
+    
+    # Construction de la matrice bloc-diagonale avec les alphas appliqués
+    scaled_blocks = list()
+    for (i in 1:n_blocks) {
+      scaled_blocks[[i]] = block_alphas[i] * xtx.raw.blocks[[i]]
+    }
+    xtx.raw.I_scaled = as.matrix(do.call(bdiag, scaled_blocks))
+    
+    # Supprimer scaled_blocks pour libérer de la mémoire
+    rm(scaled_blocks)
+    
+    # Construction de la matrice finale
+    xtx = xtx.raw.I_scaled + alpha_non_diag * xtx.raw.C + 
+      (n_blocks - sum(block_alphas)) * shrink.target_weighted * diag(p)
+    
+    # Vérification de la positivité
+    if (min(eigen(xtx, only.values = TRUE)$values) < 0) {
+      
+      # Si la matrice n'est pas positive, on remplit avec 10^8
+      DISCOM.tun.error[row, ] = 10^8
+      
+    } else {
+      # Calcul des erreurs pour chaque lambda
+      beta.initial = rep(0, p)
+      for (k in 1:nlambda) {
+        beta.cov = as.vector(crossProdLasso(xtx, xty, lambda.all[k], beta.init=beta.initial)$beta)
+        beta.initial = beta.cov  # Pour la prochaine itération
+        DISCOM.tun.values = as.vector(as.matrix(x.tuning) %*% beta.cov)
+        # Calcul de l'erreur quadratique moyenne
+        mse = mean((y.tuning - DISCOM.tun.values)^2)
+        DISCOM.tun.error[row, k] = mse
+        
+      }
+    }
+  }
+  
+  
+  # Trouver les paramètres optimaux
+  opt.index = as.vector(which(DISCOM.tun.error == min(DISCOM.tun.error), arr.ind=TRUE)[1,])
+  train.error = min(DISCOM.tun.error)
+  
+  # Extraire les valeurs alpha optimales
+  opt.alphas = 1 - l.all[opt.index[1]] * mk
+  # alpha_non_diag = 1 - l.all[opt.index[1]] * mc
+  opt.lambda = lambda.all[opt.index[2]]
+  
+  
+  # Extraire les valeurs alpha optimales pour les blocs
+  block_alphas_opt = opt.alphas[1:n_blocks]
+  alpha_non_diag_opt = 1 - l.all[opt.index[1]] * mc
+  
+  # Recalcul du shrink.target pondéré avec les alphas optimaux
+  weighted_targets = 0
+  weight_sum = 0
+  for (i in 1:n_blocks) {
+    weighted_targets = weighted_targets + ((1-block_alphas_opt[i])^2) * shrink.targets[i]
+    weight_sum = weight_sum + (1-block_alphas_opt[i])^2
+  }
+  shrink.target_opt = weighted_targets / weight_sum
+  
+  # Construction de la matrice bloc-diagonale optimale
+  scaled_blocks_opt = list()
+  for (i in 1:n_blocks) {
+    scaled_blocks_opt[[i]] = block_alphas_opt[i] * xtx.raw.blocks[[i]]
+  }
+  xtx.raw.I_opt = as.matrix(do.call(bdiag, scaled_blocks_opt))
+  
+  # Construction de la matrice finale optimale
+  xtx_opt = xtx.raw.I_opt + alpha_non_diag_opt * xtx.raw.C + 
+    (n_blocks - sum(block_alphas_opt)) * shrink.target_opt * diag(p)
+  
+  # Calcul du beta optimal
+  beta.cov = as.vector(crossProdLasso(xtx_opt, xty, opt.lambda)$beta)
+  
+  # Prédiction sur l'ensemble de test
+  predict.test.values = as.vector(x.test %*% beta.cov)
+  
+  # Calcul des métriques de performance
+  DISCOM.test.error = mean((y.test - predict.test.values)^2)
+  select = sum(as.vector(as.integer(beta.cov != 0)))
+  DISCOM.fpr = sum((beta == 0) & (beta.cov != 0))/sum(beta == 0)
+  DISCOM.fnr = sum((beta != 0) & (beta.cov == 0))/sum(beta != 0)
+  DISCOM.est.error = sqrt(sum((beta.cov - beta)^2))
+  R2 = cor(predict.test.values, y.test)^2
+  
+  # Fin de chronométrage
+  end_time <- proc.time()
+  time_taken <- end_time - start_time
+  
+  # Préparation du résultat
+  a = list(
+    'err' = DISCOM.tun.error, 
+    'est.error' = DISCOM.est.error, 
+    'lambda' = opt.lambda, 
+    'alpha' = c(block_alphas_opt, alpha_non_diag_opt), 
+    'train.error' = train.error, 
+    'test.error' = DISCOM.test.error,
+    'y.pred' = predict.test.values,
+    'R2' = R2,
+    'a0' = 0, 
+    'a1' = beta.cov, 
+    'select' = select, 
+    'xtx' = xtx_opt, 
+    'fpr' = DISCOM.fpr, 
+    'fnr' = DISCOM.fnr,
+    "time" = as.numeric(time_taken[3])
+  )
+  
+  return(a)
+}
+
+fast_discom <- function(beta, x, y, x.tuning, y.tuning, x.test, y.test, nlambda, pp, nj, njt ,   robust = 0, n.K = 30) {
+  # Temps de calcul
+  # Debut du chronométrage
+  start_time <- proc.time()
+  
+  # Récupérer les dimensions
+  p <- ncol(x)
+  p1 <- pp[1]
+  p2 <- pp[2]
+  p3 <- pp[3]
+  
+  
+  beta.true <- beta
+  
+  # Calcul des matrices croisées
+  xtx.raw <- compute.xtx(x, robust = robust)
+  xty <- compute.xty(x, y, robust = robust)
+  
+  # Créer les matrices bloc-diagonales
+  xtx.raw.I <- as.matrix(bdiag(xtx.raw[1:p1, 1:p1], 
+                               xtx.raw[(p1+1):(p1+p2), (p1+1):(p1+p2)],
+                               xtx.raw[(p1+p2+1):(p1+p2+p3), (p1+p2+1):(p1+p2+p3)]))
+  xtx.raw.C <- xtx.raw - xtx.raw.I
+  
+  # Calcul de la cible de rétrécissement
+  shrink.target <- sum(diag(xtx.raw))/p
+  
+  # Définir les constantes
+  c1 <- sqrt(log(p)/nj)
+  c2 <- sqrt(log(p)/njt)
+  
+  # Créer la matrice A
+  A.matrix <- (c2-c1)*xtx.raw.I + c1*shrink.target*diag(p)
+  
+  # Calculer les limites pour K
+  K.min <- max(0, min(eigen(xtx.raw)$values)/(c2*min(eigen(xtx.raw)$values) - min(eigen(A.matrix)$values)))
+  K.max <- 1/c2
+  
+  # Générer les séquences pour K et lambda
+  K.all <- seq(K.min, K.max, length = n.K)
+  lambda.all <- 10^(seq(log10(2), -3, length = nlambda))
+  
+  # Matrice pour stocker les erreurs de tuning
+  DISCOM.tun.error <- matrix(NA, n.K, nlambda)
+  
+  # Boucle principale pour différentes valeurs de K et lambda
+  for(i in 1:n.K) {
+    alpha1 <- 1 - K.all[i]*c1
+    alpha2 <- 1 - K.all[i]*c2
+    xtx <- alpha1*xtx.raw.I + alpha2*xtx.raw.C + (1-alpha1)*shrink.target*diag(p)
+    
+    beta.initial <- rep(0, p)
+    
+    for(k in 1:nlambda) {
+      beta.cov <- as.vector(crossProdLasso(xtx, xty, lambda.all[k], beta.init = beta.initial)$beta)
+      beta.initial <- beta.cov  # Utiliser le beta calculé comme initialisation pour la prochaine itération
+      
+      # Calculer les valeurs prédites et l'erreur
+      DISCOM.tun.values <- as.vector(as.matrix(x.tuning) %*% beta.cov)
+      DISCOM.tun.error[i, k] <- mean((y.tuning - DISCOM.tun.values)^2)
+    }
+  }
+  
+  # Trouver l'index optimal
+  opt.index <- as.vector(which(DISCOM.tun.error == min(DISCOM.tun.error), arr.ind = TRUE)[1, ])
+  
+  # Calculer les alphas optimaux
+  opt.alpha1 <- 1 - K.all[opt.index[1]]*c1
+  opt.alpha2 <- 1 - K.all[opt.index[1]]*c2
+  opt.lambda <- lambda.all[opt.index[2]]
+  
+  # Calculer la matrice xtx optimale
+  xtx_opt <- opt.alpha1*xtx.raw.I + opt.alpha2*xtx.raw.C + (1-opt.alpha1)*shrink.target*diag(p)
+  
+  # Calculer le beta final
+  beta.cov <- as.vector(crossProdLasso(xtx_opt, xty, opt.lambda)$beta)
+  
+  # Prédire sur l'ensemble de test
+  predict.test.values <- as.vector(x.test %*% beta.cov)
+  
+  # Calculer l'erreur de test
+  DISCOM.test.error <- mean((y.test - predict.test.values)^2)
+  
+  # Calculer les métriques de performance
+  DISCOM.fpr <- sum((beta.true == 0) & (beta.cov != 0))/sum(beta.true == 0)
+  DISCOM.fnr <- sum((beta.true != 0) & (beta.cov == 0))/sum(beta.true != 0)
+  DISCOM.est.error <- sqrt(sum((beta.cov - beta.true)^2))
+  
+  # Calculer l'erreur d'entraînement
+  # train.values <- as.vector(x %*% beta.cov)
+  train.error <- min(DISCOM.tun.error)
+  
+  # Calculer R²
+  R2 = cor(predict.test.values, y.test)^2
+  
+  # Déterminer les variables sélectionnées
+  select <- which(beta.cov != 0)
+  
+  # Calculer les alphas pour les blocs
+  block_alphas_opt <- c(opt.alpha1, opt.alpha2)
+  alpha_non_diag_opt <- opt.alpha2
+  
+  # Fin de chronométrage
+  end_time <- proc.time()
+  time_taken <- end_time - start_time
+  
+  # Créer la liste de résultats
+  results <- list(
+    'err' = DISCOM.tun.error, 
+    'est.error' = DISCOM.est.error, 
+    'lambda' = opt.lambda, 
+    'alpha' = c(block_alphas_opt, alpha_non_diag_opt), 
+    'train.error' = train.error, 
+    'test.error' = DISCOM.test.error,
+    'y.pred' = predict.test.values,
+    'R2' = R2,
+    'a0' = 0, 
+    'a1' = beta.cov, 
+    'select' = select, 
+    'xtx' = xtx_opt, 
+    'fpr' = DISCOM.fpr, 
+    'fnr' = DISCOM.fnr,
+    "time" = as.numeric(time_taken[3])
+  )
+  
+  return(results)
+}
+
+
+
+
+
+#----- Some functions needed for DISCOM -----------
+
+generate.cov<-function(p,example)
+{
+  cov.matrix=matrix(0,p,p)
+  if(example==1){
+    #AR(1) structure
+    for(i in 1:p){for(j in 1:p){cov.matrix[i,j]=0.6^(abs(i-j))}} 
+  }
+  else if(example==2){
+    # Block diagonal structure
+    for(i in 1:(p/5)){cov.matrix[(1+(i-1)*5):(5*i),(1+(i-1)*5):(5*i)]=matrix(0.15,5,5)+0.85*diag(5)} 
+  }
+  else{
+    # Pour cov.matrix1 (10×10)
+    # Pour cov.matrix1 (4×4) avec valeurs de corrélation fixes
+    cov.matrix1 = matrix(NA, 10, 10)
+    # Remplir avec des valeurs de corrélation appropriées
+    for(i in 1:10) {
+      for(j in 1:10) {
+        if(i == j) cov.matrix1[i,j] = 1
+        else cov.matrix1[i,j] = 0.8^(abs(i-j)) # exemple de valeurs
+      }
+    }
+    
+    # Pour cov.matrix2 (10×10)
+    pnew = p/10
+    cov.matrix2 = matrix(NA, pnew, pnew)
+    for(i in 1:pnew) {
+      for(j in 1:pnew) {
+        cov.matrix2[i,j] = 0.3^(abs(i-j))
+      }
+    }
+    
+    # Produit de Kronecker
+    cov.matrix = kronecker(cov.matrix1, cov.matrix2)
+    }
+  cov.matrix
+}
+
+compute.xtx<-function(x,robust=0,k_value=1) 
+  # robust=1 for huber estimate, k_value is used in huber function
+{
+  p=ncol(x)
+  cov.matrix=matrix(NA,p,p)
+  if(robust==0){cov.matrix=cov(x,use="pairwise.complete.obs")}
+  else{
+    for(i in 1:p)
+    {
+      for(j in 1:p){
+        index=which((!is.na(x[,i]))&(!is.na(x[,j])))
+        x1=x[index,i]
+        x2=x[index,j]
+        cov.matrix[i,j]=huberM((x1-mean(x1))*(x2-mean(x2)),k=k_value*sqrt(length(index)/log(p)))$mu
+      }
+    }
+  }
+  cov.matrix  
+}
+
+compute.xty<-function(x,y,robust=0,k_value=1)
+  # robust=1 for huber estimate, k_value is used in huber function
+{
+  p=ncol(x)
+  cov.vector=rep(NA,p)
+  if(robust==0){cov.vector=cov(x,y,use="pairwise.complete.obs")}
+  else{
+    for(i in 1:p){
+      index=which((!is.na(x[,i])))
+      x1=x[index,i]
+      x2=y[index]
+      cov.vector[i]=huberM((x1-mean(x1))*(x2-mean(x2)),k=k_value*sqrt(length(index)/log(p)))$mu
+    }
+  }
+  cov.vector
+}
+
+
+
+
+
+
+
+
+
+#------------------  SCOM method -------------------------------------------------------
+
+elastic = function(beta, x, y, x.tuning, y.tuning, x.test, y.test, lambda1, lambda2,ols_weights, weights, id.miss) 
+  {
+  # Temps de calcul
+  # Debut du chronométrage
+  start_time <- proc.time()
+  n = dim(x)[1]  
+  p = dim(x)[2]
+  s = p - apply(is.na(x), 1, sum)
+  ind = rep(0,n)
+  ind[id.miss] = 1
+  n.miss = length(id.miss)
+  
+  #-----------------------------------------------
+  
+  x[is.na(x)]=0
+  mse = matrix(NA, length(lambda1), length(lambda2))
+  test.mse = matrix(NA, length(lambda1), length(lambda2))
+  
+  eta.mat = matrix(0,n,n.miss)
+  eta.mat[id.miss,1:n.miss] = diag(rep(1,n.miss))
+  X.str = cbind(x, eta.mat)
+  Y.str = y
+  
+  for (j in 1:length(lambda1)) {
+    for (k in 1:length(lambda2)) {
+      penalty = c(ols_weights, rep(lambda2[k]/lambda1[j])*weights)
+      a = glmnet(X.str, Y.str, family = 'gaussian', lambda =  lambda1[j], penalty.factor = penalty)
+      y.tun.pred = x.tuning %*% a$beta[1:p] + a$a0
+      mse[j,k] = mean((y.tun.pred - y.tuning)^2)
+      y.pred = x.test %*% a$beta[1:p] + a$a0
+      test.mse[j,k] = mean((y.pred - y.test)^2)
+      
+    }
+  }
+  
+  train.error = min(mse)
+  ind = which(mse == train.error, arr.ind = TRUE)[1,]
+  op.lam1 = lambda1[ind[1]]
+  op.lam2 = lambda2[ind[2]]
+  test.error = test.mse[ind[1], ind[2]]
+  
+  X.str = cbind(x, eta.mat)
+  Y.str = y
+  penalty = c(ols_weights, rep(op.lam2/op.lam1)*weights)
+  a = glmnet(X.str, Y.str, family = 'gaussian', lambda =  op.lam1, penalty.factor = penalty)
+  yt.pred = x %*% a$beta[1:p] + a$a0
+  y.pred = x.test %*% a$beta[1:p] + a$a0
+  R2 = cor(y.pred, y.test)^2
+  
+  a0.op = a$a0
+  a1.op = a$beta[1:p]
+  eta = a$beta[(p+1):(p+n.miss)]
+  select = sum(as.vector(as.integer(a1.op!=0)))
+  fpr=sum((beta==0)&(a1.op!=0))/sum(beta==0)
+  fnr=sum((beta!=0)&(a1.op==0))/sum(beta!=0)
+  est.error=sqrt(sum((a1.op-beta)^2))
+  
+  
+  
+  # Fin de chronométrage
+  end_time <- proc.time()
+  time_taken <- end_time - start_time
+  a = list('err' = mse, 'test.err' = test.mse,'est.error' = est.error, 'lambda1' = op.lam1, 'lambda2' = op.lam2, 
+           'train.error' = train.error, 'test.error' = test.error,'y.fit' = yt.pred, 'y.pred' = y.pred,
+           'a1' = a1.op, 'eta' = eta,R2 = R2, 'fpr' = fpr, 'fnr' = fnr, 'select' = select, 's' = s,"time" = as.numeric(time_taken[3]))
+  
+  
+  
+  
+  return(a)
+}
+
+# Standardize matrix
+standardize_x <- function(x) 
+  {
+  x <- as.matrix(x)
+  n <- nrow(x)
+  p <- ncol(x)
+  x.mean <- colMeans(x, na.rm = TRUE)
+  x.sd <- apply(x, 2, sd, na.rm = TRUE)
+  x.sd[x.sd < 1e-6] <- 1
+  x <- sweep(x, 2, x.mean, '-')
+  x <- sweep(x, 2, x.sd, '/')
+  
+  
+  return(list(x = x, x.mean = x.mean, x.sd = x.sd))
+}
+
+# Adaptive lambda
+ols_weights <- function(y, x) 
+  {
+  x = apply(x, 2, function(z) ifelse(is.na(z), mean(z, na.rm = TRUE), z))
+  y <- standardize_x(y)$x
+  x <- standardize_x(x)$x
+  w <- apply(x, 2, function(x) lm(y ~ x - 1)$coefficients) |>
+    as.vector() |>
+    abs()
+  return(list(w_05 = w^(-0.5), w_1 = w^(-1), w_2 = w^(-2)))
+}
+#----- Impute by mean and by svd  ---------------------
+im_mean = function(x) 
+  {
+  
+  fun = function(x) mean(x,na.rm = TRUE)
+  x.mean = apply(x,2,fun)
+  x.impm = x
+  for (i in 1:p) {
+    x.impm[is.na(x[,i]),i] = x.mean[i]
+  }
+  
+  return(x.impm)
+}
+
+
+im_svd = function(x) 
+  {
+  
+  svd = softImpute(x, rank.max = min(dim(x))-1, type = 'svd')
+  x.imp = complete(x,svd)
+  
+  return(x.imp)
+}
+
+
+
+# Models computations
+best_model = data.frame()
+
+
+
+# Design SCOM ---------------
+params = expand.grid(simID = 1:100, var_noise = seq(0,8,2)/10)
+params = params[arrayID,]
+simID = params$simID
+var_noise = params$var_noise
+set.seed(simID)
+
+p = 300
+n.tuning = 200
+n.test = 400
+
+cov.mat = generate.cov(p, 1)
+sigma = 1
+
+
+
+
+
+# Set seed -------
+
+
+
+
+#-------  Train data -------------------
+
+
+
+p1 = p%/%3
+p2 = p%/%3
+p3 = p - p1 - p2
+count = 0
+pr = 1
+# var_noise = 0
+for (n in c(120, 200, 280, 360, 440, 520)) {
+  
+  #-------  Train data -------------------
+  beta1 = rep(c(rep(0.5,5), rep(0,95)),p/100)
+  beta.true = beta1
+  pre.x = mvrnorm(n + n.tuning + n.test,rep(0,p),cov.mat)
+  pre.ep = rnorm(n + n.tuning + n.test, 0, sigma)
+  
+  
+  n.com = n/4
+  n1=n2=n3=n4 = n.com
+  # grp = (n-n.com)/3
+  x = pre.x[1:n, ]
+  
+  ep = pre.ep[1:n]
+  y = x %*% beta1 + ep 
+  colnames(x) = paste0("X",1:p)
+  x0 = x
+  # x[(n.com + 1):(n.com + grp),(2*p/3+1):(3*p/3)] = NA
+  # x[(n.com + grp + 1):(n.com+ 2*grp),(p/3+1):(2*p/3)] = NA
+  # x[(n.com + 2*grp + 1):n,(p/3+1):p] = NA
+  
+  p1 = p2 = p3 = p/3
+  x[(n1 + 1):(n1 + n2), (p1 + p2 + 1):(p1 + p2 + p3)] <- NA
+  x[(n1 + n2 + 1):(n1 + n2 + n3), (p1 + 1):(p1 + p2)] <- NA
+  x[(n1 + n2 + n3 + 1):(n1 + n2 + n3 + n4), (1:p1)] <- NA
+  
+  #------------- Tuning ----------
+  x.tuning = pre.x[(n + 1):(n + n.tuning),]
+  ep.tuning = pre.ep[(n + 1):(n + n.tuning)]
+  y.tuning = x.tuning %*% beta1 + ep.tuning
+  colnames(x.tuning) = paste0("X",1:p)
+  #---------------  Test  ------------
+  x.test = pre.x[(n+n.tuning+1):(n+n.tuning+n.test),]
+  ep.test = pre.ep[(n+n.tuning+1):(n+n.tuning+n.test)]
+  y.test = x.test %*% beta1 + ep.test
+  colnames(x.test) = paste0("X",1:p)
+  # # Add noise
+  A <- rmvnorm(n, sigma = diag(var_noise, p))
+  x = x + A
+  
+  #------- impute the missing values in the train data --------------------
+  # xx = im_mean(x)
+  
+  
+  
+  # xfor = missForest(x)$ximp
+  # print('MissForest completed')
+  x.c = x[apply(is.na(x),1,sum)==0,]
+  y.c = y[apply(is.na(x),1,sum)==0]
+  
+  
+  ols_w1 <- ols_weights(y, x)$w_1
+  print(paste0('Sim ',count,' : Data generated'))
+  
+  lam1 = c(2^(seq(log2(2^5), log2(2^-20), length = 30)))
+  lam2 = c(2^(seq(log2(2^5), log2(2^-20), length = 30)))
+  
+  #------------------ Modeling --------------------------------------------------------
+  
+  
+  id.miss = (1:n)[apply(is.na(x),1,sum)!=0]
+  pro = (1 - apply(is.na(x[,1:p]),1,sum)/p)[id.miss]
+  pro = tan(pro*pi/2)
+  
+  
+  # pro = rep(1,length(pro))
+  
+  # Get dimensions for X.all
+  nObs = nrow(x)
+  nFeature = ncol(x)
+  X.all = x
+  
+  # Execute CocoLasso
+  cocofit <- coco(X.all, y, nObs, nFeature, p=p,
+                  center.Z = TRUE, scale.Z = TRUE, 
+                  center.y = TRUE, scale.y = TRUE, K = 5, tau = NULL,
+                  noise = "missing", block = FALSE, penalty = "lasso")
+  beta.cov <- cocofit$beta.opt
+  predict.test.values <- as.vector(x.test %*% beta.cov)
+  
+  DISCOM.test.error <- mean((y.test - predict.test.values)^2)
+  DISCOM.fpr <- sum((beta.true == 0) & (beta.cov != 0)) / sum(beta.true == 0)
+  DISCOM.fnr <- sum((beta.true != 0) & (beta.cov == 0)) / sum(beta.true != 0)
+  DISCOM.est.error <- sqrt(sum((beta.cov - beta.true)^2))
+  adapR2Discom <- cor(y.test, predict.test.values)^2
+  
+  print("CocoLasso done")
+  best_modeli <-  data.frame(
+    time = NA,
+    simID = simID, 
+    var_noise = var_noise,
+    sample_size = n,
+    Model = "CocoLasso",
+    lambda = cocofit$lambda.opt,
+    Lambda1 = cocofit$lambda.opt,
+    Lambda2 = NA,
+    MSE_tun = NA,
+    MSE_test = DISCOM.test.error,
+    FPR = DISCOM.fpr,
+    FNR = DISCOM.fnr,
+    Bias = DISCOM.est.error,
+    R2 = adapR2Discom,
+    beta = paste(beta.cov, collapse = " | "),
+    eta = ""
+  )
+  best_model <- rbind(best_model, best_modeli)
+  
+  # Adaptive Lasso ------------
+  df.c = cbind(y, x)
+  df.c = na.omit(df.c)
+  x.c = df.c[, -1]
+  y.c = df.c[, 1]
+  # re_lasso_complete = la_rdg(beta1, x.c, y.c, x.tuning, y.tuning, x.test, y.test, nlambda = 30, ols_w1,type = 'lasso')
+  # print(paste0('Sim ',count,' : Complete-AL done'))
+  # model_re_Alasso_complete = data.frame( simID = simID, var_noise = var_noise,sample_size = n,Model = 'AdapLasso',Lambda1 = re_lasso_complete$lambda, Lambda2 = NA,
+  #                                        MSE_tun = re_lasso_complete$train.error, MSE_test = re_lasso_complete$test.error, 
+  #                                        FPR = re_lasso_complete$fpr, FNR = re_lasso_complete$fnr, Bias = re_lasso_complete$est.error, 
+  #                                        R2 = re_lasso_complete$R2,
+  #                                        beta = paste0(re_lasso_complete$a1, collapse = ' | '),
+  #                                        eta = ''
+  # )
+  # best_model = dplyr::bind_rows(best_model, model_re_Alasso_complete)
+  
+  
+  # }
+  
+  # Mean impute
+  xx = apply(x, 2, function(x) ifelse(is.na(x), mean(x, na.rm = TRUE), x))
+  xx = as.matrix(xx)
+  # re_lasso = re_lasso_complete
+  # if (pr != 0 ) {
+  #   re_lasso = la_rdg(beta1, xx, y, x.tuning, y.tuning, x.test, y.test, nlambda = 30, ols_w1,type = 'lasso')
+  # }
+  # print(paste0('Sim ',count,' : Mean-AL done'))
+  # model_re_Alasso = data.frame( simID = simID, var_noise = var_noise,sample_size = n,Model = 'AdapLasso-Mean',Lambda1 = re_lasso$lambda, Lambda2 = NA,
+  #                               MSE_tun = re_lasso$train.error, MSE_test = re_lasso$test.error, 
+  #                               FPR = re_lasso$fpr, FNR = re_lasso$fnr, Bias = re_lasso$est.error, 
+  #                               R2 = re_lasso$R2,
+  #                               beta = paste0(re_lasso$a1, collapse = ' | '),
+  #                               eta = ''
+  # )
+  # best_model = dplyr::bind_rows(best_model, model_re_Alasso)
+  
+  
+  
+  
+  # Lasso ------
+  re_lasso_complete = la_rdg(beta1, x.c, y.c, x.tuning, y.tuning, x.test, y.test, nlambda = 30, rep(1, length(ols_w1)),type = 'lasso')
+  print(paste0('Sim ',count,' : Complete-L done'))
+  model_re_lasso_complete = data.frame( time = re_lasso_complete$time, simID = simID, var_noise = var_noise,sample_size = n, Model = 'Lasso',Lambda1 = re_lasso_complete$lambda, Lambda2 = NA,
+                                        MSE_tun = re_lasso_complete$train.error, MSE_test = re_lasso_complete$test.error, 
+                                        FPR = re_lasso_complete$fpr, FNR = re_lasso_complete$fnr, Bias = re_lasso_complete$est.error, 
+                                        R2 = re_lasso_complete$R2,
+                                        beta = paste0(re_lasso_complete$a1, collapse = ' | '),
+                                        eta = ''
+  )
+  
+  best_model = dplyr::bind_rows(best_model, model_re_lasso_complete)
+  re_lasso = re_lasso_complete
+  if (pr != 0) {
+    re_lasso = la_rdg(beta1, xx, y, x.tuning, y.tuning, x.test, y.test, nlambda = 30, rep(1,length(ols_w1)),type = 'lasso')
+  }
+  print(paste0('Sim ',count,' : Mean-L done'))
+  model_re_lasso = data.frame( time = re_lasso$time, simID = simID, var_noise = var_noise,sample_size = n,Model = 'Lasso-Mean',Lambda1 = re_lasso$lambda, Lambda2 = NA,
+                               MSE_tun = re_lasso$train.error, MSE_test = re_lasso$test.error, 
+                               FPR = re_lasso$fpr, FNR = re_lasso$fnr, Bias = re_lasso$est.error, 
+                               R2 = re_lasso$R2,
+                               beta = paste0(re_lasso$a1, collapse = ' | '),
+                               eta = ''
+  )
+  best_model = dplyr::bind_rows(best_model, model_re_lasso)
+  
+  
+  
+  
+  
+  # Svd
+  re_lasso_svd = re_lasso_complete
+  if (pr != 0) {
+    svd = softImpute(x,  type = 'svd')
+    xsvd = softImpute::complete(x, svd)
+    re_lasso_svd = la_rdg(beta1, xsvd, y, x.tuning, y.tuning, x.test, y.test, nlambda = 30,
+                          ols_weights =   rep(1,length(ols_w1)), type = 'lasso')
+  }
+  
+  model_re_lasso_svd = data.frame( time = re_lasso_svd$time, simID = simID, var_noise = var_noise,sample_size = n,Model = 'Lasso-SVD',Lambda1 = re_lasso_svd$lambda, Lambda2 = NA,
+                                   MSE_tun = re_lasso_svd$train.error, MSE_test = re_lasso_svd$test.error, 
+                                   FPR = re_lasso_svd$fpr, FNR = re_lasso_svd$fnr, Bias = re_lasso_svd$est.error, 
+                                   R2 = re_lasso_svd$R2,
+                                   beta = paste0(re_lasso_svd$a1, collapse = ' | '),
+                                   eta = ''
+  )
+  
+  
+  best_model = dplyr::bind_rows(best_model, model_re_lasso_svd)
+  
+  re_w2_enet = re_lasso_complete
+  re_w2_enet$lambda1 = re_w2_enet$lambda
+  re_w2_enet$lambda2 = NA
+  if (pr != 0) {
+    re_w2_enet = elastic(beta1, x, y, x.tuning, y.tuning, x.test, y.test, lam1, lam2, rep(1,length(ols_w1)),pro, id.miss)
+  }
+  print(paste0('Sim ',count,' : SCOM done'))
+  model_scom_w2 = data.frame( time = re_w2_enet$time, simID = simID, var_noise = var_noise,sample_size = n,Model = 'Scom-L',Lambda1 = re_w2_enet$lambda1, Lambda2 = re_w2_enet$lambda2, 
+                              MSE_tun = re_w2_enet$train.error, MSE_test = re_w2_enet$test.error, 
+                              FPR = re_w2_enet$fpr, FNR = re_w2_enet$fnr, Bias = re_w2_enet$est.error, 
+                              R2 = re_w2_enet$R2,
+                              beta = paste0(re_w2_enet$a1, collapse = ' | '),
+                              eta = paste0(re_w2_enet$eta, collapse = ' | ')
+  )
+  best_model = dplyr::bind_rows(best_model, model_scom_w2)
+  
+  
+  # AdapDiscom ------
+  re_adapdiscom = adapdiscom(beta1, x, y, x.tuning, y.tuning, x.test, y.test, nlambda = 30, nalpha = 10, 
+                             pp = c(p1,p2,p3), robust = 0)
+  print("AdapDiscom done")
+  model_re_adapdiscom = data.frame( time = re_adapdiscom$time, simID = simID, var_noise = var_noise,sample_size = n,Model = 'AdapDiscom',Lambda1 = re_adapdiscom$lambda, Lambda2 = NA,
+                                    MSE_tun = re_adapdiscom$train.error, MSE_test = re_adapdiscom$test.error, 
+                                    FPR = re_adapdiscom$fpr, FNR = re_adapdiscom$fnr, Bias = re_adapdiscom$est.error, 
+                                    R2 = re_adapdiscom$R2,
+                                    beta = paste0(re_adapdiscom$a1, collapse = ' | '),
+                                    eta = ''
+  )
+  best_model = dplyr::bind_rows(best_model, model_re_adapdiscom)
+  
+  # AdapDiscom General ------
+  re_adapdiscom = adapdiscom_general(beta1, x, y, x.tuning, y.tuning, x.test, y.test, nlambda = 30, nalpha = 10, 
+                             pp = c(p1,p2,p3), robust = 0)
+  print("AdapDiscom-General done")
+  model_re_adapdiscom = data.frame( time = re_adapdiscom$time, simID = simID, var_noise = var_noise,sample_size = n,Model = 'AdapDiscom-Gen',Lambda1 = re_adapdiscom$lambda, Lambda2 = NA,
+                                    MSE_tun = re_adapdiscom$train.error, MSE_test = re_adapdiscom$test.error, 
+                                    FPR = re_adapdiscom$fpr, FNR = re_adapdiscom$fnr, Bias = re_adapdiscom$est.error, 
+                                    R2 = re_adapdiscom$R2,
+                                    beta = paste0(re_adapdiscom$a1, collapse = ' | '),
+                                    eta = ''
+  )
+  best_model = dplyr::bind_rows(best_model, model_re_adapdiscom)
+  
+  
+  # AdapDiscom Huber ------
+  re_adapdiscom = adapdiscom(beta1, x, y, x.tuning, y.tuning, x.test, y.test, nlambda = 30, nalpha = 10, 
+                             pp = c(p1,p2,p3), robust = 1)
+  print("AdapDiscom-Huber done")
+  model_re_adapdiscom = data.frame( time = re_adapdiscom$time, simID = simID, var_noise = var_noise,sample_size = n,Model = 'AdapDiscom-Huber',Lambda1 = re_adapdiscom$lambda, Lambda2 = NA,
+                                    MSE_tun = re_adapdiscom$train.error, MSE_test = re_adapdiscom$test.error, 
+                                    FPR = re_adapdiscom$fpr, FNR = re_adapdiscom$fnr, Bias = re_adapdiscom$est.error, 
+                                    R2 = re_adapdiscom$R2,
+                                    beta = paste0(re_adapdiscom$a1, collapse = ' | '),
+                                    eta = ''
+  )
+  best_model = dplyr::bind_rows(best_model, model_re_adapdiscom)
+  
+  # Fast AdapDiscom ------
+  re_adapdiscom = fast_adapdiscom(beta1, x, y, x.tuning, y.tuning, x.test, y.test, nlambda = 30, nalpha = 10, 
+                             pp = c(p1,p2,p3), robust = 0)
+  print("Fast AdapDiscom done")
+  model_re_adapdiscom = data.frame( time = re_adapdiscom$time, simID = simID, var_noise = var_noise,sample_size = n,Model = 'Fast-AdapDiscom',Lambda1 = re_adapdiscom$lambda, Lambda2 = NA,
+                                    MSE_tun = re_adapdiscom$train.error, MSE_test = re_adapdiscom$test.error, 
+                                    FPR = re_adapdiscom$fpr, FNR = re_adapdiscom$fnr, Bias = re_adapdiscom$est.error, 
+                                    R2 = re_adapdiscom$R2,
+                                    beta = paste0(re_adapdiscom$a1, collapse = ' | '),
+                                    eta = ''
+  )
+  best_model = dplyr::bind_rows(best_model, model_re_adapdiscom)
+  
+  # Fast AdapDiscom Huber ------
+  re_adapdiscom = fast_adapdiscom(beta1, x, y, x.tuning, y.tuning, x.test, y.test, nlambda = 30, nalpha = 10, 
+                                  pp = c(p1,p2,p3), robust = 1)
+  print("Fast AdapDiscom Huber done")
+  model_re_adapdiscom = data.frame( time = re_adapdiscom$time, simID = simID, var_noise = var_noise,sample_size = n,Model = 'Fast-AdapDiscom-Huber',
+                                    Lambda1 = re_adapdiscom$lambda, Lambda2 = NA,
+                                    MSE_tun = re_adapdiscom$train.error, MSE_test = re_adapdiscom$test.error, 
+                                    FPR = re_adapdiscom$fpr, FNR = re_adapdiscom$fnr, Bias = re_adapdiscom$est.error, 
+                                    R2 = re_adapdiscom$R2,
+                                    beta = paste0(re_adapdiscom$a1, collapse = ' | '),
+                                    eta = ''
+  )
+  best_model = dplyr::bind_rows(best_model, model_re_adapdiscom)
+  
+  
+  
+  
+  
+  # Discom ------
+  re_Discom = discom(beta1, x, y, x.tuning, y.tuning, x.test, y.test, nlambda = 30, nalpha = 10, 
+                     pp = c(p1,p2,p3),robust = 0)
+  print("Discom done")
+  model_re_Discom = data.frame( time = re_Discom$time, simID = simID, var_noise = var_noise,sample_size = n,Model = 'Discom',Lambda1 = re_Discom$lambda, Lambda2 = NA,
+                                MSE_tun = re_Discom$train.error, MSE_test = re_Discom$test.error, 
+                                FPR = re_Discom$fpr, FNR = re_Discom$fnr, Bias = re_Discom$est.error, 
+                                R2 = re_Discom$R2,
+                                beta = paste0(re_Discom$a1, collapse = ' | '),
+                                eta = ''
+  )
+  
+  best_model = dplyr::bind_rows(best_model, model_re_Discom)
+  
+  # Discom Huber ------
+  re_Discom = discom(beta1, x, y, x.tuning, y.tuning, x.test, y.test, nlambda = 30, nalpha = 10, 
+                     pp = c(p1,p2,p3),robust = 1)
+  print("Discom-Huber done")
+  model_re_Discom = data.frame( time = re_Discom$time, simID = simID, var_noise = var_noise,sample_size = n,Model = 'Discom-Huber',Lambda1 = re_Discom$lambda, Lambda2 = NA,
+                                MSE_tun = re_Discom$train.error, MSE_test = re_Discom$test.error, 
+                                FPR = re_Discom$fpr, FNR = re_Discom$fnr, Bias = re_Discom$est.error, 
+                                R2 = re_Discom$R2,
+                                beta = paste0(re_Discom$a1, collapse = ' | '),
+                                eta = ''
+  )
+  
+  best_model = dplyr::bind_rows(best_model, model_re_Discom)
+  
+  
+  # Fast Discom ------
+  re_Discom = fast_discom(beta1, x, y, x.tuning, y.tuning, x.test, y.test, nlambda = 30,
+                     pp = c(p1,p2,p3), nj = (n-n/4), njt = n/4, robust = 0)
+  
+  print("Fast Discom done")
+  model_re_Discom = data.frame( time = re_Discom$time, simID = simID, var_noise = var_noise,sample_size = n,Model = 'Fast-Discom',Lambda1 = re_Discom$lambda, Lambda2 = NA,
+                                MSE_tun = re_Discom$train.error, MSE_test = re_Discom$test.error, 
+                                FPR = re_Discom$fpr, FNR = re_Discom$fnr, Bias = re_Discom$est.error, 
+                                R2 = re_Discom$R2,
+                                beta = paste0(re_Discom$a1, collapse = ' | '),
+                                eta = ''
+  )
+  
+  best_model = dplyr::bind_rows(best_model, model_re_Discom)
+  
+  # Fast Discom Huber ------
+  re_Discom = fast_discom(beta1, x, y, x.tuning, y.tuning, x.test, y.test, nlambda = 30,
+                          pp = c(p1,p2,p3), nj = (n-n/4), njt = n/4, robust = 1)
+  
+  print("Fast Discom Huber done")
+  model_re_Discom = data.frame( time = re_Discom$time, simID = simID, var_noise = var_noise,sample_size = n,Model = 'Fast-Discom-Huber',Lambda1 = re_Discom$lambda, Lambda2 = NA,
+                               MSE_tun = re_Discom$train.error, MSE_test = re_Discom$test.error, 
+                               FPR = re_Discom$fpr, FNR = re_Discom$fnr, Bias = re_Discom$est.error, 
+                               R2 = re_Discom$R2,
+                               beta = paste0(re_Discom$a1, collapse = ' | '),
+                               eta = ''
+  )
+  
+  best_model = dplyr::bind_rows(best_model, model_re_Discom)
+  
+  # CocoLasso ------
+ 
+  
+  print(paste0('Sim ',count,' : Done'))
+  count = count + 1
+}
+
+
+# save(list = ls(), file = 'Replication/Scom_replicate_HD.RData')
+save(list = ls(), file = paste0('Design0_', Sys.getenv('SLURM_ARRAY_TASK_ID'), '.RData'))
