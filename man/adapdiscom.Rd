@@ -2,7 +2,7 @@
 % Please edit documentation in R/adapdiscom.R
 \name{adapdiscom}
 \alias{adapdiscom}
-\title{AdapDiscom: Adaptive Discriminative Covariance Matrix Estimation}
+\title{AdapDiscom: An Adaptive Sparse Regression Method for High-Dimensional Multimodal Data With Block-Wise Missingness and Measurement Errors}
 \usage{
 adapdiscom(
   beta,
@@ -57,7 +57,7 @@ adapdiscom(
 List with estimation results
 }
 \description{
-AdapDiscom: Adaptive Discriminative Covariance Matrix Estimation
+AdapDiscom: An Adaptive Sparse Regression Method for High-Dimensional Multimodal Data With Block-Wise Missingness and Measurement Errors
 }
 \section{Value}{
 

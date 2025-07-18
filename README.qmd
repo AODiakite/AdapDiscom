@@ -8,7 +8,8 @@ format:
 
 # AdapDiscom Package
 
-The `AdapDiscom` package provides implementations of a multimodal high dimensionnal method accounting for missing data and measurement error heterogenity
+The `AdapDiscom` package provides implementations of **AdapDISCOM**, a novel adaptive direct sparse regression method for high-dimensional multimodal data with block-wise missingness and measurement errors. Building on the DISCOM framework, AdapDISCOM introduces modality-specific weighting schemes to account for heterogeneity in data structures and error magnitudes across modalities. Unlike existing methods that are limited to a fixed number of blocks, **AdapDISCOM supports any number of blocks K**, making it highly flexible for diverse multimodal data applications. The package includes robust variants (AdapDISCOM-Huber) and computationally efficient versions (Fast-AdapDISCOM) to handle heavy-tailed distributions and large-scale datasets. AdapDISCOM has been shown to consistently outperform existing methods such as DISCOM, SCOM, and imputation based, particularly under heterogeneous contamination scenarios, providing a scalable framework for realistic multimodal data analysis with missing data and measurement errors.
+
 
 ## Installation
 
@@ -29,47 +30,91 @@ The package provides four main estimation functions:
 3. **`fast_adapdiscom()`** 
 4. **`fast_discom()`** 
 
+
+## Different Covariance Structures
+
+The package handles different covariance structures:
+
+```{r}
+# Number of variables
+p <-  10
+# Load the package
+library(AdapDiscom)
+# AR(1) structure
+Sigma_ar1 <- generate.cov(p, example = 1)
+
+# Block diagonal structure
+Sigma_block <- generate.cov(p, example = 2)
+
+# Kronecker product structure
+Sigma_kron <- generate.cov(p, example = 3)
+```
 ## Basic Usage Example
 
 ### Data Simulation
 
-Let's start by simulating data with a block-diagonal covariance structure:
+This simulation scenario represents a simple replication of scenario 2 from the AdapDISCOM's paper. It is case study with 300 variables distributed across 3 equal blocks (100 variables each), where each block follows a different covariance structure: the first block uses an AR(1) structure, the second a block-diagonal structure, and the third a Kronecker product structure. The training data (n=440) exhibits a structured missing data pattern where each quarter of the sample is completely missing one of the three variable blocks, creating heterogeneity in data availability that reflects real-world situations where different subgroups of subjects may have access to different sets of measurements. The true coefficient vector $\beta$ follows a sparse pattern with only $5\%$ of variables having non-zero effects ($\beta = 0.5$), allowing evaluation of the method's ability to correctly identify relevant variables in a high-dimensional context with heterogeneous missing data.
+
 
 ```{r}
 library(AdapDiscom)
 library(MASS)
-
+set.seed(123)
 # Set parameters
-n <- 100        # Training sample size
-n.tuning <- 50  # Tuning sample size  
-n.test <- 50    # Test sample size
-p <- 50         # Number of variables
-pp <- c(20, 15, 15)  # Block sizes (must sum to p)
+p <- 300
+n <- 440
+n.tuning <- 200
+n.test <- 400
+p1 <- p%/%3
+p2 <- p%/%3
+p3 <- p - p1 - p2
+pp <- c(p1, p2, p3)  # Block sizes
+sigma <- 1
+```
 
-# Generate block-diagonal covariance matrix
-Sigma <- generate.cov(p, example = 2)  # Block diagonal structure
+```{r}
+# Generate different covariance matrices for each block
+cov.mat1 <- generate.cov(p1, 1)  # AR(1) structure for block 1
+cov.mat2 <- generate.cov(p2, 2)  # Block diagonal for block 2
+cov.mat3 <- generate.cov(p3, 3)  # Kronecker product for block 3
+```
 
+```{r}
 # Generate true beta coefficients
-beta.true <- c(rep(2, 10), rep(0, 10), rep(1, 10), rep(0, 5), rep(-1, 10), rep(0, 5))
+beta1 <- rep(c(rep(0.5, 5), rep(0, 95)), p/100)
+beta.true <- beta1
 
-# Generate training data
-X.train <- mvrnorm(n, mu = rep(0, p), Sigma = Sigma)
-y.train <- X.train %*% beta.true + rnorm(n)
-n1=n2=n3=n4=n%/%4
-p1 = pp[1]
-p2 = pp[2]
-p3 = pp[3]
+# Generate complete data for all samples
+pre.x1 <- mvrnorm(n + n.tuning + n.test, rep(0, p%/%3), cov.mat1)
+pre.x2 <- mvrnorm(n + n.tuning + n.test, rep(0, p%/%3), cov.mat2)
+pre.x3 <- mvrnorm(n + n.tuning + n.test, rep(0, p%/%3), cov.mat3)
+pre.x <- cbind(pre.x1, pre.x2, pre.x3)
+pre.ep <- rnorm(n + n.tuning + n.test, 0, sigma)
+
+# Training data
+n.com <- n/4
+n1 <- n2 <- n3 <- n4 <- n.com
+X.train <- pre.x[1:n, ]
+ep <- pre.ep[1:n]
+y.train <- X.train %*% beta1 + ep 
+colnames(X.train) <- paste0("X", 1:p)
+
+# Introduce missing data pattern
 X.train[(n1 + 1):(n1 + n2), (p1 + p2 + 1):(p1 + p2 + p3)] <- NA
 X.train[(n1 + n2 + 1):(n1 + n2 + n3), (p1 + 1):(p1 + p2)] <- NA
 X.train[(n1 + n2 + n3 + 1):(n1 + n2 + n3 + n4), (1:p1)] <- NA
 
-# Generate tuning data
-X.tuning <- mvrnorm(n.tuning, mu = rep(0, p), Sigma = Sigma)
-y.tuning <- X.tuning %*% beta.true + rnorm(n.tuning)
+# Tuning data
+X.tuning <- pre.x[(n + 1):(n + n.tuning), ]
+ep.tuning <- pre.ep[(n + 1):(n + n.tuning)]
+y.tuning <- X.tuning %*% beta1 + ep.tuning
+colnames(X.tuning) <- paste0("X", 1:p)
 
-# Generate test data
-X.test <- mvrnorm(n.test, mu = rep(0, p), Sigma = Sigma)
-y.test <- X.test %*% beta.true + rnorm(n.test)
+# Test data
+X.test <- pre.x[(n + n.tuning + 1):(n + n.tuning + n.test), ]
+ep.test <- pre.ep[(n + n.tuning + 1):(n + n.tuning + n.test)]
+y.test <- X.test %*% beta1 + ep.test
+colnames(X.test) <- paste0("X", 1:p)
 ```
 
 ### Running AdapDiscom
@@ -132,12 +177,7 @@ methods <- c("adapdiscom", "discom", "fast_adapdiscom", "fast_discom")
 results <- list()
 
 # AdapDiscom
-results$adapdiscom <- adapdiscom(
-  beta = beta.true, x = X.train, y = y.train,
-  x.tuning = X.tuning, y.tuning = y.tuning,
-  x.test = X.test, y.test = y.test,
-  nlambda = 20, nalpha = 10, pp = pp
-)
+results$adapdiscom <- result # Already computed above
 
 # DISCOM
 results$discom <- discom(
@@ -178,11 +218,17 @@ comparison <- data.frame(
 print(comparison)
 ```
 
+:::{.callout-note}
+
+When the missing blocks are of equal size within each modality and are disjoint across modalities (i.e., no observations have missing data in multiple modalities simultaneously), Fast-AdapDISCOM reduces to Fast-DISCOM since the adaptive weighting scheme becomes uniform across all modalities.
+
+:::
+
 ## Robust Estimation
 
 The package supports robust estimation using Huber's M-estimator:
 
-```{r}
+```{r eval=F}
 # Run with robust estimation
 result_robust <- adapdiscom(
   beta = beta.true,
@@ -195,20 +241,7 @@ result_robust <- adapdiscom(
 )
 ```
 
-## Different Covariance Structures
 
-The package handles different covariance structures:
-
-```{r}
-# AR(1) structure
-Sigma_ar1 <- generate.cov(p, example = 1)
-
-# Block diagonal structure
-Sigma_block <- generate.cov(p, example = 2)
-
-# Kronecker product structure
-Sigma_kron <- generate.cov(p, example = 3)
-```
 
 ## Advanced Parameters
 

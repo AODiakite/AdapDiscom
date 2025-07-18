@@ -2,7 +2,7 @@
 % Please edit documentation in R/fast_variants.R
 \name{fast_discom}
 \alias{fast_discom}
-\title{Fast DISCOM: Fast Discriminative Covariance Matrix Estimation}
+\title{Fast DISCOM}
 \usage{
 fast_discom(
   beta,
@@ -57,7 +57,7 @@ fast_discom(
 List with estimation results
 }
 \description{
-Fast DISCOM: Fast Discriminative Covariance Matrix Estimation
+Fast DISCOM
 }
 \section{Value}{
 

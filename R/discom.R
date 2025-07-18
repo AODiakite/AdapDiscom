@@ -1,4 +1,4 @@
-#' DISCOM: Discriminative Covariance Matrix Estimation
+#' DISCOM: Optimal Sparse Linear Prediction for Block-missing Multi-modality Data Without Imputation
 #'
 #' @param beta Vector, true beta coefficients (optional)
 #' @param x Matrix, training data

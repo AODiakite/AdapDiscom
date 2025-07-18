@@ -1,4 +1,4 @@
-#' AdapDiscom: Adaptive Discriminative Covariance Matrix Estimation
+#' AdapDiscom: An Adaptive Sparse Regression Method for High-Dimensional Multimodal Data With Block-Wise Missingness and Measurement Errors
 #'
 #' @param beta Vector, true beta coefficients (optional)
 #' @param x Matrix, training data

@@ -1,4 +1,4 @@
-#' Fast AdapDiscom: Fast Adaptive Discriminative Covariance Matrix Estimation
+#' Fast AdapDiscom
 #'
 #' @param beta Vector, true beta coefficients (optional)
 #' @param x Matrix, training data
@@ -279,7 +279,7 @@ fast_adapdiscom <- function(beta, x, y, x.tuning, y.tuning, x.test, y.test, nlam
   return(a)
 }
 
-#' Fast DISCOM: Fast Discriminative Covariance Matrix Estimation
+#' Fast DISCOM
 #'
 #' @param beta Vector, true beta coefficients (optional)
 #' @param x Matrix, training data

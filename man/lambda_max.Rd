@@ -2,7 +2,7 @@
 % Please edit documentation in R/utility_functions.R
 \name{lambda_max}
 \alias{lambda_max}
-\title{Compute Lambda Max for L1 Regularization}
+\title{Compute Lambda Max for L1 Regularization using KKT Conditions}
 \usage{
 lambda_max(X, y, Methode = "lasso", robust = 0)
 }
@@ -19,5 +19,5 @@ lambda_max(X, y, Methode = "lasso", robust = 0)
 Maximum lambda value
 }
 \description{
-Compute Lambda Max for L1 Regularization
+Compute Lambda Max for L1 Regularization using KKT Conditions
 }

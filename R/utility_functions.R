@@ -95,12 +95,6 @@ compute.xty <- function(x, y, robust = 0, k_value = 1.5) {
   cov.vector
 }
 
-#' Standardize Matrix
-#'
-#' @param x Matrix, input data matrix
-#' @param robust Integer, 0 for classical estimate, 1 for Huber robust estimate
-#' @param k.value Numeric, tuning parameter for robust estimation
-#' @return List with standardized matrix and scaling parameters
 standardize_x <- function(x, robust = 0, k.value = 1.5) {
   x <- as.matrix(x)
   n <- nrow(x)
@@ -115,12 +109,6 @@ standardize_x <- function(x, robust = 0, k.value = 1.5) {
   return(list(x = x, x.mean = x.mean, x.sd = x.sd))
 }
 
-#' Apply Standardization to New Data
-#'
-#' @param x Matrix, input data matrix to be standardized
-#' @param x.mean Vector, column means from training data
-#' @param x.sd Vector, column standard deviations from training data
-#' @return Standardized matrix
 fit_standardize_x <- function(x, x.mean, x.sd) {
   x <- as.matrix(x)
   x <- sweep(x, 2, x.mean, '-')
@@ -172,10 +160,6 @@ get_block_indices <- function(pp) {
   return(list(starts = starts, ends = ends))
 }
 
-#' Mean Imputation
-#'
-#' @param X Matrix with missing values
-#' @return Matrix with missing values imputed by column means
 im_mean <- function(X) {
   X <- as.matrix(X)
   for (j in 1:ncol(X)) {
@@ -187,11 +171,6 @@ im_mean <- function(X) {
   return(X)
 }
 
-#' SVD Imputation
-#'
-#' @param X Matrix with missing values
-#' @return Matrix with missing values imputed using SVD
-#' @export
 im_svd <- function(X) {
   X <- as.matrix(X)
   if (any(is.na(X))) {

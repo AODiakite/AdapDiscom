@@ -2,7 +2,7 @@
 % Please edit documentation in R/discom.R
 \name{discom}
 \alias{discom}
-\title{DISCOM: Discriminative Covariance Matrix Estimation}
+\title{DISCOM: Optimal Sparse Linear Prediction for Block-missing Multi-modality Data Without Imputation}
 \usage{
 discom(
   beta,
@@ -57,7 +57,7 @@ discom(
 List with estimation results
 }
 \description{
-DISCOM: Discriminative Covariance Matrix Estimation
+DISCOM: Optimal Sparse Linear Prediction for Block-missing Multi-modality Data Without Imputation
 }
 \section{Value}{
 
