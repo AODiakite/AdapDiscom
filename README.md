@@ -1,5 +1,4 @@
-# A multimodal high dimensionnal method accounting for missing data and
-measurement error heterogenity
+# A multimodal high dimensionnal method accounting for missing data and measurement error heterogenity
 
 
 -   [AdapDiscom Package](#adapdiscom-package)
