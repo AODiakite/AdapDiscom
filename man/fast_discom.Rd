@@ -84,3 +84,48 @@ The function returns a list containing the following components:
 }
 }
 
+\examples{
+\dontrun{
+# Fast DISCOM example
+set.seed(123)
+n <- 120
+pp <- c(40, 40)  # Two blocks of equal size
+p <- sum(pp)
+beta_true <- c(rep(0.5, 10), rep(0, 30), rep(-0.3, 15), rep(0, 25))
+
+# Block diagonal covariance structure
+Sigma <- generate.cov(p = p, example = 2)
+
+# Simulate data
+x_full <- MASS::mvrnorm(n = n, mu = rep(0, p), Sigma = Sigma)
+x <- x_full
+# Random missing pattern
+for(i in 1:n) {
+  if(runif(1) < 0.4) {
+    if(runif(1) < 0.5) {
+      x[i, 1:pp[1]] <- NA
+    } else {
+      x[i, (pp[1]+1):p] <- NA
+    }
+  }
+}
+
+# Generate response
+y <- x_full \%*\% beta_true + rnorm(n, 0, 0.2)
+
+result <- fast_discom(
+  beta = beta_true,
+  x = x[1:70, ],
+  y = y[1:70],
+  x.tuning = x[71:95, ],
+  y.tuning = y[71:95],
+  x.test = x[96:120, ],
+  y.test = y[96:120],
+  nlambda = 12,
+  pp = pp,
+  n.l = 15
+)
+
+print(paste("Fast DISCOM - Test error:", round(result$test.error, 4)))
+}
+}

@@ -19,3 +19,17 @@ Covariance matrix
 \description{
 Compute X'X Matrix
 }
+\examples{
+# Create sample data with missing values
+set.seed(123)
+x <- matrix(rnorm(100), 20, 5)
+x[sample(100, 10)] <- NA  # Introduce missing values
+
+# Classical covariance estimation
+xtx_classical <- compute.xtx(x, robust = 0)
+print(round(xtx_classical, 3))
+
+# Robust covariance estimation
+xtx_robust <- compute.xtx(x, robust = 1, k_value = 1.5)
+print(round(xtx_robust, 3))
+}

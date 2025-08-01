@@ -17,3 +17,16 @@ A p x p covariance matrix
 \description{
 Generate Covariance Matrix
 }
+\examples{
+# AR(1) covariance structure
+Sigma1 <- generate.cov(p = 20, example = 1)
+print(Sigma1[1:3, 1:3])
+
+# Block diagonal structure (p must be multiple of 5)
+Sigma2 <- generate.cov(p = 25, example = 2) 
+print(Sigma2[1:5, 1:5])
+
+# Kronecker product structure (p must be multiple of 10)
+Sigma3 <- generate.cov(p = 100, example = 3)
+print(dim(Sigma3))
+}

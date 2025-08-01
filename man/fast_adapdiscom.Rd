@@ -87,3 +87,51 @@ The function returns a list containing the following components:
 }
 }
 
+\examples{
+\dontrun{
+# Fast AdapDiscom example with multiple blocks
+set.seed(123)
+n <- 150
+pp <- c(30, 40, 30)  # Three blocks
+p <- sum(pp)
+beta_true <- c(rep(0.3, 15), rep(0, 15), rep(-0.2, 10), rep(0, 30), rep(0.4, 20), rep(0, 10))
+
+# Generate covariance matrix
+Sigma <- generate.cov(p = p, example = 1)
+
+# Simulate data with complex missing pattern
+x_full <- MASS::mvrnorm(n = n, mu = rep(0, p), Sigma = Sigma)
+x <- x_full
+# Missing pattern: different blocks missing for different observations
+miss1 <- sample(1:n, size = floor(n/4))
+miss2 <- sample(1:n, size = floor(n/3))
+x[miss1, 1:pp[1]] <- NA
+x[miss2, (pp[1] + pp[2] + 1):p] <- NA
+
+# Generate response
+y <- x_full \%*\% beta_true + rnorm(n, 0, 0.15)
+
+# Split data
+train_idx <- 1:90
+tune_idx <- 91:120
+test_idx <- 121:150
+
+result <- fast_adapdiscom(
+  beta = beta_true,
+  x = x[train_idx, ],
+  y = y[train_idx],
+  x.tuning = x[tune_idx, ],
+  y.tuning = y[tune_idx],
+  x.test = x[test_idx, ],
+  y.test = y[test_idx],
+  nlambda = 15,
+  nalpha = 10,
+  pp = pp,
+  n.l = 20
+)
+
+# View results
+print(paste("Test error:", round(result$test.error, 4)))
+print(paste("Computation time:", round(result$time, 2), "seconds"))
+}
+}

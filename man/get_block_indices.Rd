@@ -15,3 +15,15 @@ List with start and end indices for each block
 \description{
 Get Block Indices
 }
+\examples{
+# Define block sizes
+pp <- c(10, 15, 20)
+indices <- get_block_indices(pp)
+print(indices)
+# Shows: $starts = c(1, 11, 26) and $ends = c(10, 25, 45)
+
+# For two blocks
+pp2 <- c(25, 25)
+indices2 <- get_block_indices(pp2)
+print(indices2)
+}

@@ -21,3 +21,18 @@ Covariance vector
 \description{
 Compute X'y Vector
 }
+\examples{
+# Create sample data
+set.seed(123)
+x <- matrix(rnorm(100), 20, 5)
+y <- rnorm(20)
+x[sample(100, 8)] <- NA  # Missing values in x
+
+# Classical cross-covariance
+xty_classical <- compute.xty(x, y, robust = 0)
+print(round(xty_classical, 3))
+
+# Robust cross-covariance
+xty_robust <- compute.xty(x, y, robust = 1)
+print(round(xty_robust, 3))
+}
