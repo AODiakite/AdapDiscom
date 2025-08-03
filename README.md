@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.16732550.svg)](https://doi.org/10.5281/zenodo.16732550)
+
 # A multimodal high dimensionnal method accounting for missing data and measurement error heterogenity
 
 
