@@ -374,5 +374,5 @@ result_advanced <- adapdiscom(
 ## References
 
 For more details on the methodology, please refer to the original papers
-on *A multimodal high dimensionnal method accounting for missing data
-and measurement error heterogenity*.
+on [A multimodal high dimensionnal method accounting for missing data
+and measurement error heterogenity](https://arxiv.org/abs/2508.00120).
