@@ -13,7 +13,6 @@ fast_adapdiscom(
   x.test,
   y.test,
   nlambda,
-  nalpha,
   pp,
   robust = 0,
   n.l = 30,
@@ -40,13 +39,11 @@ fast_adapdiscom(
 
 \item{nlambda}{Integer, number of lambda values}
 
-\item{nalpha}{Integer, number of alpha values}
-
 \item{pp}{Vector, block sizes}
 
 \item{robust}{Integer, 0 for classical, 1 for robust estimation}
 
-\item{n.l}{Integer, number of tuning parameter (`l`) values for fast variants}
+\item{n.l}{Integer, number of tuning parameter (`l`) values for fast variants (number of alpha values)}
 
 \item{standardize}{Logical, whether to standardize covariates. When TRUE, uses training data mean and standard deviation to standardize tuning and test sets. When robust=1, uses Huber-robust standard deviation estimates}
 
@@ -125,7 +122,6 @@ result <- fast_adapdiscom(
   x.test = x[test_idx, ],
   y.test = y[test_idx],
   nlambda = 15,
-  nalpha = 10,
   pp = pp,
   n.l = 20
 )

@@ -192,7 +192,7 @@ results$fast_adapdiscom <- fast_adapdiscom(
   beta = beta.true, x = X.train, y = y.train,
   x.tuning = X.tuning, y.tuning = y.tuning,
   x.test = X.test, y.test = y.test,
-  nlambda = 20, nalpha = 10, pp = pp
+  nlambda = 20,  pp = pp
 )
 
 # Fast DISCOM

@@ -8,10 +8,9 @@
 #' @param x.test Matrix, test data
 #' @param y.test Vector, test response
 #' @param nlambda Integer, number of lambda values
-#' @param nalpha Integer, number of alpha values
 #' @param pp Vector, block sizes
 #' @param robust Integer, 0 for classical, 1 for robust estimation
-#' @param n.l Integer, number of tuning parameter (`l`) values for fast variants
+#' @param n.l Integer, number of tuning parameter (`l`) values for fast variants (number of alpha values)
 #' @param standardize Logical, whether to standardize covariates. When TRUE, uses training data mean and standard deviation to standardize tuning and test sets. When robust=1, uses Huber-robust standard deviation estimates
 #' @param itcp Logical, whether to include intercept
 #' @param lambda.min.ratio Numeric, `lambda.min.ratio` sets the smallest lambda value in the grid, expressed as a fraction of `lambda.max`—the smallest lambda for which all coefficients are zero. By default, it is `0.0001` when the number of observations (`nobs`) exceeds the number of variables (`nvars`), and `0.01` when `nobs < nvars`. Using a very small value in the latter case can lead to overfitting.
@@ -78,7 +77,6 @@
 #'   x.test = x[test_idx, ],
 #'   y.test = y[test_idx],
 #'   nlambda = 15,
-#'   nalpha = 10,
 #'   pp = pp,
 #'   n.l = 20
 #' )
@@ -88,7 +86,7 @@
 #' print(paste("Computation time:", round(result$time, 2), "seconds"))
 #' }
 #' @export
-fast_adapdiscom <- function(beta, x, y, x.tuning, y.tuning, x.test, y.test, nlambda, nalpha, pp,
+fast_adapdiscom <- function(beta, x, y, x.tuning, y.tuning, x.test, y.test, nlambda, pp,
                             robust = 0, n.l = 30, standardize = TRUE, itcp = TRUE,
                             lambda.min.ratio = NULL,  k.value = 1.5) {
   
@@ -111,7 +109,7 @@ fast_adapdiscom <- function(beta, x, y, x.tuning, y.tuning, x.test, y.test, nlam
   n.test <- dim(x.test)[1]
   n_blocks <- length(pp)
   
-  alpha.all <- 10^seq(10^(-10), -3, length = nalpha)
+  # alpha.all <- 10^seq(10^(-10), -3, length = nalpha)
   
   lambda.max <- lambda_max(x, y, Methode = "discom", robust = robust)
   nobs <- dim(na.omit(x))[1]
