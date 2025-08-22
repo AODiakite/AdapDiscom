@@ -85,47 +85,38 @@ The function returns a list containing the following components:
 }
 
 \examples{
-\dontrun{
-# Fast DISCOM example
-set.seed(123)
-n <- 120
-pp <- c(40, 40)  # Two blocks of equal size
-p <- sum(pp)
-beta_true <- c(rep(0.5, 10), rep(0, 30), rep(-0.3, 15), rep(0, 25))
+\donttest{
+# Fast DISCOM example with synthetic multimodal data
+n <- 70
+p <- 18
 
-# Block diagonal covariance structure
-Sigma <- generate.cov(p = p, example = 2)
+# Generate synthetic data with 3 blocks
+set.seed(321)
+x_train <- matrix(rnorm(n * p), n, p)
+x_tuning <- matrix(rnorm(35 * p), 35, p)
+x_test <- matrix(rnorm(20 * p), 20, p)
 
-# Simulate data
-x_full <- MASS::mvrnorm(n = n, mu = rep(0, p), Sigma = Sigma)
-x <- x_full
-# Random missing pattern
-for(i in 1:n) {
-  if(runif(1) < 0.4) {
-    if(runif(1) < 0.5) {
-      x[i, 1:pp[1]] <- NA
-    } else {
-      x[i, (pp[1]+1):p] <- NA
-    }
-  }
-}
+# True coefficients with block structure
+beta_true <- c(rep(1.0, 3), rep(0, 3), rep(-1.2, 3), rep(0, 3), rep(0.8, 3), rep(0, 3))
 
-# Generate response
-y <- x_full \%*\% beta_true + rnorm(n, 0, 0.2)
+# Response variables
+y_train <- x_train \%*\% beta_true + rnorm(n, sd = 0.4)
+y_tuning <- x_tuning \%*\% beta_true + rnorm(35, sd = 0.4)
+y_test <- x_test \%*\% beta_true + rnorm(20, sd = 0.4)
 
-result <- fast_discom(
-  beta = beta_true,
-  x = x[1:70, ],
-  y = y[1:70],
-  x.tuning = x[71:95, ],
-  y.tuning = y[71:95],
-  x.test = x[96:120, ],
-  y.test = y[96:120],
-  nlambda = 12,
-  pp = pp,
-  n.l = 15
-)
+# Block sizes (3 blocks of 6 variables each)
+pp <- c(6, 6, 6)
 
-print(paste("Fast DISCOM - Test error:", round(result$test.error, 4)))
+# Run fast DISCOM (efficient for large datasets)
+result <- fast_discom(beta = beta_true,
+                      x = x_train, y = y_train,
+                      x.tuning = x_tuning, y.tuning = y_tuning,
+                      x.test = x_test, y.test = y_test,
+                      nlambda = 20, pp = pp, n.l = 25)
+
+# View results
+print(paste("Test error:", round(result$test.error, 4)))
+print(paste("R-squared:", round(result$R2, 3)))
+print(paste("Runtime:", round(result$time, 2), "seconds"))
 }
 }

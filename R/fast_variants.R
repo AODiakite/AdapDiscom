@@ -40,50 +40,38 @@
 #'   \item{time}{The total execution time of the function in seconds.}
 #' }
 #' @examples
-#' \dontrun{
-#' # Fast AdapDiscom example with multiple blocks
-#' set.seed(123)
-#' n <- 150
-#' pp <- c(30, 40, 30)  # Three blocks
-#' p <- sum(pp)
-#' beta_true <- c(rep(0.3, 15), rep(0, 15), rep(-0.2, 10), rep(0, 30), rep(0.4, 20), rep(0, 10))
+#' \donttest{
+#' # Fast computation example with synthetic data
+#' n <- 80
+#' p <- 16
 #' 
-#' # Generate covariance matrix
-#' Sigma <- generate.cov(p = p, example = 1)
+#' # Generate synthetic data with 2 blocks
+#' set.seed(789)
+#' x_train <- matrix(rnorm(n * p), n, p)
+#' x_tuning <- matrix(rnorm(40 * p), 40, p)
+#' x_test <- matrix(rnorm(25 * p), 25, p)
 #' 
-#' # Simulate data with complex missing pattern
-#' x_full <- MASS::mvrnorm(n = n, mu = rep(0, p), Sigma = Sigma)
-#' x <- x_full
-#' # Missing pattern: different blocks missing for different observations
-#' miss1 <- sample(1:n, size = floor(n/4))
-#' miss2 <- sample(1:n, size = floor(n/3))
-#' x[miss1, 1:pp[1]] <- NA
-#' x[miss2, (pp[1] + pp[2] + 1):p] <- NA
+#' # True coefficients
+#' beta_true <- c(rep(1.2, 3), rep(0, 5), rep(-0.8, 2), rep(0, 6))
 #' 
-#' # Generate response
-#' y <- x_full %*% beta_true + rnorm(n, 0, 0.15)
+#' # Response variables
+#' y_train <- x_train %*% beta_true + rnorm(n, sd = 0.3)
+#' y_tuning <- x_tuning %*% beta_true + rnorm(40, sd = 0.3)
+#' y_test <- x_test %*% beta_true + rnorm(25, sd = 0.3)
 #' 
-#' # Split data
-#' train_idx <- 1:90
-#' tune_idx <- 91:120
-#' test_idx <- 121:150
+#' # Block sizes (2 blocks of 8 variables each)  
+#' pp <- c(8, 8)
 #' 
-#' result <- fast_adapdiscom(
-#'   beta = beta_true,
-#'   x = x[train_idx, ],
-#'   y = y[train_idx],
-#'   x.tuning = x[tune_idx, ],
-#'   y.tuning = y[tune_idx],
-#'   x.test = x[test_idx, ],
-#'   y.test = y[test_idx],
-#'   nlambda = 15,
-#'   pp = pp,
-#'   n.l = 20
-#' )
+#' # Run fast AdapDiscom (faster with fewer tuning parameters)
+#' result <- fast_adapdiscom(beta = beta_true,
+#'                           x = x_train, y = y_train,
+#'                           x.tuning = x_tuning, y.tuning = y_tuning,
+#'                           x.test = x_test, y.test = y_test,
+#'                           nlambda = 15, pp = pp, n.l = 20)
 #' 
 #' # View results
-#' print(paste("Test error:", round(result$test.error, 4)))
-#' print(paste("Computation time:", round(result$time, 2), "seconds"))
+#' print(paste("Test R-squared:", round(result$R2, 3)))
+#' print(paste("Computation time:", round(result$time[3], 2), "seconds"))
 #' }
 #' @export
 fast_adapdiscom <- function(beta, x, y, x.tuning, y.tuning, x.test, y.test, nlambda, pp,
@@ -366,48 +354,39 @@ fast_adapdiscom <- function(beta, x, y, x.tuning, y.tuning, x.test, y.test, nlam
 #'   \item{time}{The total execution time of the function in seconds.}
 #' }
 #' @examples
-#' \dontrun{
-#' # Fast DISCOM example
-#' set.seed(123)
-#' n <- 120
-#' pp <- c(40, 40)  # Two blocks of equal size
-#' p <- sum(pp)
-#' beta_true <- c(rep(0.5, 10), rep(0, 30), rep(-0.3, 15), rep(0, 25))
+#' \donttest{
+#' # Fast DISCOM example with synthetic multimodal data
+#' n <- 70
+#' p <- 18
 #' 
-#' # Block diagonal covariance structure
-#' Sigma <- generate.cov(p = p, example = 2)
+#' # Generate synthetic data with 3 blocks
+#' set.seed(321)
+#' x_train <- matrix(rnorm(n * p), n, p)
+#' x_tuning <- matrix(rnorm(35 * p), 35, p)
+#' x_test <- matrix(rnorm(20 * p), 20, p)
 #' 
-#' # Simulate data
-#' x_full <- MASS::mvrnorm(n = n, mu = rep(0, p), Sigma = Sigma)
-#' x <- x_full
-#' # Random missing pattern
-#' for(i in 1:n) {
-#'   if(runif(1) < 0.4) {
-#'     if(runif(1) < 0.5) {
-#'       x[i, 1:pp[1]] <- NA
-#'     } else {
-#'       x[i, (pp[1]+1):p] <- NA
-#'     }
-#'   }
-#' }
+#' # True coefficients with block structure
+#' beta_true <- c(rep(1.0, 3), rep(0, 3), rep(-1.2, 3), rep(0, 3), rep(0.8, 3), rep(0, 3))
 #' 
-#' # Generate response
-#' y <- x_full %*% beta_true + rnorm(n, 0, 0.2)
+#' # Response variables
+#' y_train <- x_train %*% beta_true + rnorm(n, sd = 0.4)
+#' y_tuning <- x_tuning %*% beta_true + rnorm(35, sd = 0.4)
+#' y_test <- x_test %*% beta_true + rnorm(20, sd = 0.4)
 #' 
-#' result <- fast_discom(
-#'   beta = beta_true,
-#'   x = x[1:70, ],
-#'   y = y[1:70],
-#'   x.tuning = x[71:95, ],
-#'   y.tuning = y[71:95],
-#'   x.test = x[96:120, ],
-#'   y.test = y[96:120],
-#'   nlambda = 12,
-#'   pp = pp,
-#'   n.l = 15
-#' )
+#' # Block sizes (3 blocks of 6 variables each)
+#' pp <- c(6, 6, 6)
 #' 
-#' print(paste("Fast DISCOM - Test error:", round(result$test.error, 4)))
+#' # Run fast DISCOM (efficient for large datasets)
+#' result <- fast_discom(beta = beta_true,
+#'                       x = x_train, y = y_train,
+#'                       x.tuning = x_tuning, y.tuning = y_tuning,
+#'                       x.test = x_test, y.test = y_test,
+#'                       nlambda = 20, pp = pp, n.l = 25)
+#' 
+#' # View results
+#' print(paste("Test error:", round(result$test.error, 4)))
+#' print(paste("R-squared:", round(result$R2, 3)))
+#' print(paste("Runtime:", round(result$time, 2), "seconds"))
 #' }
 #' @export
 fast_discom <- function(beta, x, y, x.tuning, y.tuning, x.test, y.test, nlambda, pp,

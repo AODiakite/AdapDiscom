@@ -6,7 +6,7 @@
     GNU Fortran (Ubuntu 13.2.0-23ubuntu3) 13.2.0
 * running under: Ubuntu 24.04.2 LTS
 * using session charset: UTF-8
-* using options ‘--no-manual --no-vignettes’
+* using options ‘--no-manual --as-cran’
 * checking for file ‘./DESCRIPTION’ ... ERROR
 Required fields missing or empty:
   ‘Author’ ‘Maintainer’

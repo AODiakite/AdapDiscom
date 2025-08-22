@@ -40,54 +40,49 @@
 #'   \item{time}{The total execution time of the function in seconds.}
 #' }
 #' @examples
-#' \dontrun{
-#' # Generate synthetic data with block structure
-#' set.seed(123)
+#' \donttest{
+#' # Simple example with synthetic data
 #' n <- 100
-#' pp <- c(20, 30)  # Two blocks
-#' p <- sum(pp)
-#' beta_true <- c(rep(0.5, 10), rep(0, 10), rep(0.3, 10), rep(0, 20))
+#' p <- 20
 #' 
-#' # Generate covariance matrix
-#' Sigma <- generate.cov(p = p, example = 1)
+#' # Generate synthetic data with 2 blocks
+#' set.seed(123)
+#' x_train <- matrix(rnorm(n * p), n, p)
+#' x_tuning <- matrix(rnorm(50 * p), 50, p)
+#' x_test <- matrix(rnorm(30 * p), 30, p)
 #' 
-#' # Simulate data with missing blocks
-#' x_full <- MASS::mvrnorm(n = n, mu = rep(0, p), Sigma = Sigma)
-#' # Introduce block-wise missing pattern
-#' missing_pattern <- sample(1:2, n, replace = TRUE, prob = c(0.3, 0.7))
-#' x <- x_full
-#' x[missing_pattern == 1, (pp[1] + 1):p] <- NA  # Missing second block
+#' # True coefficients
+#' beta_true <- c(rep(2, 5), rep(0, 15))
 #' 
-#' # Generate response
-#' y <- x_full %*% beta_true + rnorm(n, 0, 0.1)
+#' # Response variables
+#' y_train <- x_train %*% beta_true + rnorm(n)
+#' y_tuning <- x_tuning %*% beta_true + rnorm(50)
+#' y_test <- x_test %*% beta_true + rnorm(30)
 #' 
-#' # Split data
-#' train_idx <- 1:60
-#' tune_idx <- 61:80
-#' test_idx <- 81:100
+#' # Block sizes (2 blocks of 10 variables each)
+#' pp <- c(10, 10)
 #' 
-#' result <- adapdiscom(
-#'   beta = beta_true,
-#'   x = x[train_idx, ],
-#'   y = y[train_idx],
-#'   x.tuning = x[tune_idx, ],
-#'   y.tuning = y[tune_idx],
-#'   x.test = x[test_idx, ],
-#'   y.test = y[test_idx],
-#'   nlambda = 10,
-#'   nalpha = 5,
-#'   pp = pp
-#' )
+#' # Run AdapDiscom
+#' result <- adapdiscom(beta = beta_true,
+#'                      x = x_train, y = y_train,
+#'                      x.tuning = x_tuning, y.tuning = y_tuning, 
+#'                      x.test = x_test, y.test = y_test,
+#'                      nlambda = 20, nalpha = 10, pp = pp)
 #' 
 #' # View results
-#' print(paste("Test error:", round(result$test.error, 4)))
-#' print(paste("R-squared:", round(result$R2, 4)))
-#' print(paste("Variables selected:", result$select))
+#' print(paste("Test R-squared:", round(result$R2, 3)))
+#' print(paste("Selected variables:", result$select))
 #' }
 #' @export
 adapdiscom <- function(beta, x, y, x.tuning, y.tuning, x.test, y.test, nlambda, nalpha, pp, 
                        robust = 0, standardize = TRUE, itcp = TRUE, lambda.min.ratio = NULL, 
                        k.value = 1.5) {
+
+# -------------------------------------------------------------------------
+
+
+# -------------------------------------------------------------------------
+
   
   x_std = standardize_x(as.matrix(x), robust = robust, k.value = k.value)
   xm <- x_std$x.mean

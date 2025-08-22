@@ -85,48 +85,38 @@ The function returns a list containing the following components:
 }
 
 \examples{
-\dontrun{
-# Generate synthetic data with 2 blocks
-set.seed(123)
+\donttest{
+# Simple example with synthetic multimodal data
 n <- 100
-pp <- c(25, 25)  # Two equal blocks
-p <- sum(pp)
-beta_true <- c(rep(0.4, 10), rep(0, 15), rep(0.3, 15), rep(0, 10))
+p <- 24
 
-# Generate covariance matrix
-Sigma <- generate.cov(p = p, example = 1)
+# Generate synthetic data with 3 blocks
+set.seed(456)
+x_train <- matrix(rnorm(n * p), n, p)
+x_tuning <- matrix(rnorm(50 * p), 50, p)
+x_test <- matrix(rnorm(30 * p), 30, p)
 
-# Simulate data with missing blocks
-x_full <- MASS::mvrnorm(n = n, mu = rep(0, p), Sigma = Sigma)
-# Introduce block-wise missing pattern
-missing_idx <- sample(1:n, size = floor(n/3))
-x <- x_full
-x[missing_idx, 1:pp[1]] <- NA  # Missing first block for some observations
+# True coefficients with sparse structure
+beta_true <- c(rep(1.5, 4), rep(0, 4), rep(-1, 4), rep(0, 12))
 
-# Generate response
-y <- x_full \%*\% beta_true + rnorm(n, 0, 0.1)
+# Response variables
+y_train <- x_train \%*\% beta_true + rnorm(n, sd = 0.5)
+y_tuning <- x_tuning \%*\% beta_true + rnorm(50, sd = 0.5)
+y_test <- x_test \%*\% beta_true + rnorm(30, sd = 0.5)
 
-# Split data
-train_idx <- 1:60
-tune_idx <- 61:80
-test_idx <- 81:100
+# Block sizes (3 blocks of 8 variables each)
+pp <- c(8, 8, 8)
 
-result <- discom(
-  beta = beta_true,
-  x = x[train_idx, ],
-  y = y[train_idx],
-  x.tuning = x[tune_idx, ],
-  y.tuning = y[tune_idx],
-  x.test = x[test_idx, ],
-  y.test = y[test_idx],
-  nlambda = 10,
-  nalpha = 5,
-  pp = pp
-)
+# Run DISCOM
+result <- discom(beta = beta_true,
+                 x = x_train, y = y_train,
+                 x.tuning = x_tuning, y.tuning = y_tuning,
+                 x.test = x_test, y.test = y_test,
+                 nlambda = 25, nalpha = 15, pp = pp)
 
 # View results
 print(paste("Test error:", round(result$test.error, 4)))
-print(paste("R-squared:", round(result$R2, 4)))
+print(paste("R-squared:", round(result$R2, 3)))
 print(paste("Variables selected:", result$select))
 }
 }
