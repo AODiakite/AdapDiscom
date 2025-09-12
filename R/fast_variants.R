@@ -125,7 +125,7 @@ fast_adapdiscom <- function(beta, x, y, x.tuning, y.tuning, x.test, y.test, nlam
   # Replace NA by 0
   x_dummy[is.na(x_dummy)] <- 0
   
-  njt <- min(x_dummy%*%t(x_dummy))
+  njt <- min(t(x_dummy) %*% x_dummy)
   
   for (i in 1:n_blocks) {
     idx_range <- indices$starts[i]:indices$ends[i]
@@ -443,7 +443,7 @@ fast_discom <- function(beta, x, y, x.tuning, y.tuning, x.test, y.test, nlambda,
   # Replace NA by 0
   x_dummy[is.na(x_dummy)] <- 0
   
-  njt <- min(x_dummy%*%t(x_dummy))
+  njt <- min(t(x_dummy) %*% x_dummy)
   rm(x_dummy)
   # Définir les constantes
   c1 <- sqrt(log(p)/nj)
