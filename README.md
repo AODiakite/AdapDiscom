@@ -1,5 +1,10 @@
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.16732550.svg)](https://doi.org/10.5281/zenodo.16732550)
-
+[![CRAN/METACRAN](https://www.r-pkg.org/badges/version/AdapDiscom)](https://cran.r-project.org/package=AdapDiscom)
+![CRAN/METACRAN](https://badgen.net/cran/license/AdapDiscom)
+<!--
+[![](https://cranlogs.r-pkg.org/badges/AdapDiscom)](https://cran.r-project.org/package=AdapDiscom)
+[![](https://cranlogs.r-pkg.org/badges/grand-total/AdapDiscom?color=brightgreen)](https://cran.r-project.org/package=AdapDiscom)
+-->
 # A multimodal high dimensionnal method accounting for missing data and measurement error heterogenity
 
 
